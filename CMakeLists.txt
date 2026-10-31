@@ -22,13 +22,10 @@ if(ENABLE_FRONTEND_API)
 endif()
 
 if(ENABLE_QT)
-  find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets)
-  # Linux : en-têtes privés de Qt nécessaires à l'affichage OBS (qt-display.cpp)
-  if((OS_LINUX OR OS_FREEBSD OR OS_OPENBSD) AND Qt6_VERSION VERSION_LESS "6.9.0")
-    find_package(Qt6 REQUIRED COMPONENTS Gui GuiPrivate)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::GuiPrivate)
-  endif()
+  find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+  # Pas de support Wayland natif en V0.1 (ENABLE_WAYLAND non défini) :
+  # les en-têtes privés de Qt (GuiPrivate) ne sont donc pas nécessaires.
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
     PRIVATE $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header -Wno-comma>
