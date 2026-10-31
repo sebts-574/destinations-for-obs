@@ -24,8 +24,15 @@ endif()
 if(ENABLE_QT)
   find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui)
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
-  # Pas de support Wayland natif en V0.1 (ENABLE_WAYLAND non défini) :
-  # les en-têtes privés de Qt (GuiPrivate) ne sont donc pas nécessaires.
+  # Linux : qt-display.cpp utilise un en-tête privé de Qt pour Wayland
+  # (ENABLE_WAYLAND vient d'obsconfig.h). Avant Qt 6.9, la cible
+  # Qt6::GuiPrivate est créée par le paquet Gui, sans composant séparé.
+  if(OS_LINUX OR OS_FREEBSD OR OS_OPENBSD)
+    if(NOT TARGET Qt6::GuiPrivate)
+      find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+    endif()
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::GuiPrivate)
+  endif()
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
     PRIVATE $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header -Wno-comma>
