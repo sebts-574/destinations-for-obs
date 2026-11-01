@@ -627,6 +627,8 @@ void StudioWindow::BuildMenus()
 	destinationsMenu = bar->addMenu(Tr("MDS.MenuDestinations"));
 	connect(destinationsMenu, &QMenu::aboutToShow, this, &StudioWindow::FillDestinationsMenu);
 
+	    destinationsMenu->clear();
+
 	/* --- Docks : afficher / masquer --- */
 	viewMenu = bar->addMenu(Tr("MDS.MenuView"));
 	for (QDockWidget *dock : findChildren<QDockWidget *>())
