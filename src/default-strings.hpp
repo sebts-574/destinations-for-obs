@@ -212,4 +212,6 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.ConfirmRemoveScenes", "Remove these %1 scenes?"},
 	{"MDS.ConfirmRemoveSource", "Remove the source “%1” from this scene?"},
 	{"MDS.ConfirmRemoveSources", "Remove these %1 sources from this scene?"},
+	{"MDS.FullscreenHint", "F11 to toggle fullscreen"},
+	{"MDS.NotInSceneBadge", "Not in this scene"},
 };

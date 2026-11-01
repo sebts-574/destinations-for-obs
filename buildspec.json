@@ -33,13 +33,13 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "no.tombre.destinations-for-obs"
+            "bundleId": "no.tombre.multidestination-studio"
         }
     },
-    "name": "destinations-for-obs",
-    "displayName": "Destinations for OBS",
-    "version": "0.8.0",
+    "name": "multidestination-studio",
+    "displayName": "Multidestination Studio",
+    "version": "0.9.0",
     "author": "Sébastien Tombre",
-    "website": "https://github.com/sebts-574/destinations-for-obs",
+    "website": "https://github.com/sebts-574/multidestination-studio",
     "email": "noreply@users.noreply.github.com"
 }

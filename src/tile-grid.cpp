@@ -1,5 +1,5 @@
 /*
-Destinations for OBS
+Multidestination Studio
 Copyright (C) 2026 Sébastien Tombre
 
 This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <graphics/math-defs.h>
+
 #include <QFontMetrics>
 #include <QLabel>
 #include <QMouseEvent>
@@ -93,6 +95,12 @@ TileWidget::TileWidget(Destination *destination, bool program_, QWidget *parent)
 	headerLayout->setSpacing(4);
 	headerLabel = new QLabel(header);
 	headerLayout->addWidget(headerLabel, 1);
+	absentBadge = new QLabel(Tr("MDS.NotInSceneBadge"), header);
+	absentBadge->setAlignment(Qt::AlignCenter);
+	absentBadge->setStyleSheet("QLabel { background-color: #8e2a2a; color: white; border-radius: 4px; "
+				   "padding: 1px 8px; }");
+	absentBadge->hide();
+	headerLayout->addWidget(absentBadge);
 
 	focusButton = new QPushButton(header);
 	focusButton->setFixedHeight(HEADER_HEIGHT);
@@ -193,10 +201,15 @@ void TileWidget::RefreshHeader()
 		if (!pgm.empty())
 			text += "  —  " + QString::fromStdString(pgm);
 	}
-	headerLabel->setText(text);
+	headerText = text;
+	headerLabel->setToolTip(text);
 
-	if (!program && !LinkedScene())
-		headerLabel->setText(text + "  —  " + Tr("MDS.NotInScene"));
+	/* Destination absente de la scène sélectionnée : badge rouge dans
+	 * l'en-tête et image hachurée (voir DrawCb). */
+	const bool isAbsent = !program && !LinkedScene();
+	absent = isAbsent;
+	absentBadge->setVisible(isAbsent);
+	setToolTip(isAbsent ? Tr("MDS.SettingDisplayAllTip") : QString());
 
 	if (lockButton) {
 		const QSignalBlocker blocker(lockButton);
@@ -213,7 +226,7 @@ void TileWidget::resizeEvent(QResizeEvent *event)
 
 int TileWidget::HeaderHeightFor(int columnWidth)
 {
-	return std::clamp(columnWidth / 20, 26, 40);
+	return std::clamp(columnWidth / 16, 28, 48);
 }
 
 void TileWidget::SetHeaderHeight(int height)
@@ -229,18 +242,20 @@ void TileWidget::SetHeaderHeight(int height)
 
 void TileWidget::FitHeaderButtons()
 {
-	/* Texte proportionnel à la hauteur de l'en-tête (elle-même liée à la
-	 * largeur de la colonne). Texte complet (« ⛶ Agrandir ») si tout tient,
-	 * sinon symbole seul ; le détail reste dans l'info-bulle. Les boutons
-	 * sont dimensionnés d'après leur texte pour ne jamais le couper. */
+	/* Tailles proportionnelles à la hauteur de l'en-tête (elle-même liée à
+	 * la largeur de la colonne). Boutons : texte complet (« ⛶ Agrandir »)
+	 * si tout tient, sinon symbole seul, jamais coupés. Nom : abrégé avec
+	 * « … » si nécessaire, complet dans l'info-bulle. */
 	const int h = std::max(HEADER_HEIGHT, header->height());
 	QFont font = focusButton->font();
-	font.setPixelSize(std::clamp(h * 45 / 100, 12, 18));
+	font.setPixelSize(std::clamp(h * 42 / 100, 12, 19));
 	font.setBold(false);
 
 	QFont labelFont = font;
-	labelFont.setBold(active.load());
+	labelFont.setPixelSize(std::clamp(h * 52 / 100, 13, 24));
+	labelFont.setBold(true);
 	headerLabel->setFont(labelFont);
+	absentBadge->setFont(font);
 
 	const QString focusFull = focused ? Tr("MDS.Unfocus") : Tr("MDS.Focus");
 	const QString lockFull = dest->Locked() ? Tr("MDS.Locked") : Tr("MDS.Lock");
@@ -249,32 +264,67 @@ void TileWidget::FitHeaderButtons()
 	};
 
 	const QFontMetrics fm(font);
+	const QFontMetrics labelFm(labelFont);
 	const int padding = 2 * std::max(12, h / 2);
 	auto widthFor = [&](const QString &text) {
 		return fm.horizontalAdvance(text) + padding;
 	};
 
-	int needed = widthFor(focusFull);
+	const int total = std::max(1, width());
+	const int badgeW = absent.load() ? fm.horizontalAdvance(absentBadge->text()) + 24 : 0;
+	int needed = widthFor(focusFull) + badgeW;
 	if (lockButton)
 		needed += widthFor(lockFull);
-	const int labelMin = std::min(QFontMetrics(labelFont).horizontalAdvance(headerLabel->text()), 140);
-	const bool full = needed + labelMin + 16 <= std::max(1, width());
+	const int labelMin = std::min(labelFm.horizontalAdvance(headerText), 160);
+	const bool full = needed + labelMin + 16 <= total;
 
 	const QString focusText = full ? focusFull : symbol(focusFull);
 	focusButton->setFont(font);
 	focusButton->setText(focusText);
 	focusButton->setFixedWidth(widthFor(focusText));
+	int used = focusButton->width() + badgeW + 16;
 	if (lockButton) {
 		const QString lockText = full ? lockFull : symbol(lockFull);
 		lockButton->setFont(font);
 		lockButton->setText(lockText);
 		lockButton->setFixedWidth(widthFor(lockText));
+		used += lockButton->width();
 	}
+	headerLabel->setText(labelFm.elidedText(headerText, Qt::ElideRight, std::max(20, total - used)));
 }
 
 /* ------------------------------------------------------------------ */
 /* Rendu (thread graphique)                                             */
 /* ------------------------------------------------------------------ */
+
+/* Destination absente de la scène : fond gris foncé hachuré en diagonale
+ * et grande croix, pour qu'on le voie d'un coup d'œil. */
+static void DrawAbsent(float w, float h)
+{
+	DrawSolidRect(0.0f, 0.0f, w, h, 0xFF1A1A1A);
+	const float diag = std::sqrt(w * w + h * h);
+	const float stripe = std::max(w, h) / 48.0f;
+
+	gs_matrix_push();
+	gs_matrix_translate3f(w * 0.5f, h * 0.5f, 0.0f);
+	gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(45.0f));
+	for (float x = -diag; x < diag; x += stripe * 3.0f)
+		DrawSolidRect(x, -diag, stripe, diag * 2.0f, 0xFF2A2A2A);
+	gs_matrix_pop();
+
+	/* Croix rouge sombre d'un coin à l'autre. */
+	const float t = std::max(w, h) / 160.0f;
+	const float len = diag;
+	const float angle = std::atan2(h, w);
+	for (float a : {angle, -angle}) {
+		gs_matrix_push();
+		gs_matrix_translate3f(w * 0.5f, h * 0.5f, 0.0f);
+		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, a);
+		DrawSolidRect(-len * 0.5f, -t * 0.5f, len, t, 0xB08E2A2A);
+		gs_matrix_pop();
+	}
+	DrawOutline(t, t, w - 2.0f * t, h - 2.0f * t, t, 0xFF8E2A2A);
+}
 
 void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 {
@@ -300,6 +350,8 @@ void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 		} else {
 			scene = tile->LinkedScene();
 			DrawSolidRect(0.0f, 0.0f, float(w), float(h), 0xFF000000);
+			if (!scene && tile->absent.load())
+				DrawAbsent(float(w), float(h));
 			if (scene) {
 				const bool previous = gs_set_linear_srgb(true);
 				obs_source_video_render(scene);

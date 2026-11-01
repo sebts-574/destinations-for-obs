@@ -1,5 +1,5 @@
 /*
-Destinations for OBS
+Multidestination Studio
 Copyright (C) 2026 Sébastien Tombre
 
 This program is free software; you can redistribute it and/or modify
@@ -254,11 +254,12 @@ void obs_module_post_load(void)
 	const QByteArray studioName = Tr("MDS.HotkeyStudio").toUtf8();
 	const QByteArray takeName = Tr("MDS.HotkeyTransition").toUtf8();
 	const QByteArray cutName = Tr("MDS.HotkeyCut").toUtf8();
-	studioHotkey = obs_hotkey_register_frontend("destinations_for_obs.studio", studioName.constData(), StudioHotkey,
-						    nullptr);
+	studioHotkey = obs_hotkey_register_frontend("multidestination_studio.studio", studioName.constData(),
+						    StudioHotkey, nullptr);
 	takeHotkey =
-		obs_hotkey_register_frontend("destinations_for_obs.take", takeName.constData(), TakeHotkey, nullptr);
-	cutHotkey = obs_hotkey_register_frontend("destinations_for_obs.cut", cutName.constData(), CutHotkey, nullptr);
+		obs_hotkey_register_frontend("multidestination_studio.take", takeName.constData(), TakeHotkey, nullptr);
+	cutHotkey =
+		obs_hotkey_register_frontend("multidestination_studio.cut", cutName.constData(), CutHotkey, nullptr);
 
 	signal_handler_connect(obs_get_signal_handler(), "source_create", SourceCreated, nullptr);
 	obs_frontend_add_event_callback(FrontendEvent, nullptr);

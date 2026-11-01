@@ -1,5 +1,5 @@
 /*
-Destinations for OBS
+Multidestination Studio
 Copyright (C) 2026 Sébastien Tombre
 
 This program is free software; you can redistribute it and/or modify
@@ -102,6 +102,9 @@ private:
 
 	QWidget *header = nullptr;
 	QLabel *headerLabel = nullptr;
+	QString headerText;            /* texte complet (le libellé peut être abrégé) */
+	QLabel *absentBadge = nullptr; /* « Absente de cette scène » */
+	std::atomic<bool> absent{false};
 	QPushButton *lockButton = nullptr;
 	QPushButton *focusButton = nullptr;
 	EditDisplay *display = nullptr;

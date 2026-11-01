@@ -1,5 +1,5 @@
 /*
-Destinations for OBS
+Multidestination Studio
 Copyright (C) 2026 Sébastien Tombre
 
 This program is free software; you can redistribute it and/or modify
@@ -53,6 +53,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QShortcut>
 #include <QSpinBox>
 #include <QCursor>
+#include <QStyle>
 #include <QTimer>
 #include <QToolButton>
 #include <QToolTip>
@@ -203,6 +204,37 @@ StudioWindow::~StudioWindow()
 	Shutdown();
 }
 
+/* Titre « Aperçu » / « Programme » : très grand et gras, proportionnel à
+ * la largeur de la colonne. Les destinations prennent la place restante. */
+class ColumnTitle : public QLabel {
+public:
+	ColumnTitle(const QString &text, QWidget *parent) : QLabel(text, parent)
+	{
+		setAlignment(Qt::AlignCenter);
+		setContentsMargins(0, 4, 0, 8);
+		Fit();
+	}
+
+protected:
+	void resizeEvent(QResizeEvent *event) override
+	{
+		QLabel::resizeEvent(event);
+		Fit();
+	}
+
+private:
+	void Fit()
+	{
+		const int px = std::clamp(width() / 9, 30, 56);
+		if (font().pixelSize() == px && font().bold())
+			return;
+		QFont f = font();
+		f.setPixelSize(px);
+		f.setBold(true);
+		setFont(f);
+	}
+};
+
 void StudioWindow::BuildCentral()
 {
 	monitors = new QWidget(this);
@@ -215,13 +247,7 @@ void StudioWindow::BuildCentral()
 		auto *l = new QVBoxLayout(col);
 		l->setContentsMargins(0, 0, 0, 0);
 		l->setSpacing(2);
-		auto *t = new QLabel(label, col);
-		t->setAlignment(Qt::AlignCenter);
-		QFont font = t->font();
-		font.setPixelSize(24);
-		font.setBold(true);
-		t->setFont(font);
-		t->setContentsMargins(0, 4, 0, 6);
+		auto *t = new ColumnTitle(label, col);
 		l->addWidget(t);
 		grid->setParent(col);
 		l->addWidget(grid, 1);
@@ -580,6 +606,21 @@ void StudioWindow::BuildMenus()
 		if (Dialogs::EditDisplaySetting(this, showAll))
 			Manager::Get().SetShowAllDestinations(showAll);
 	});
+	settingsMenuAction = settingsMenu->menuAction();
+
+	/* Info « F11 … » juste après le dernier menu. */
+	fullscreenHint = new QWidget(bar);
+	auto *hintLayout = new QHBoxLayout(fullscreenHint);
+	hintLayout->setContentsMargins(0, 0, 0, 0);
+	hintLayout->setSpacing(5);
+	auto *hintIcon = new QLabel(fullscreenHint);
+	hintIcon->setPixmap(style()->standardIcon(QStyle::SP_MessageBoxInformation).pixmap(14, 14));
+	auto *hintText = new QLabel(Tr("MDS.FullscreenHint"), fullscreenHint);
+	hintText->setStyleSheet("QLabel { color: #8ab4f8; font-style: italic; }");
+	hintLayout->addWidget(hintIcon);
+	hintLayout->addWidget(hintText);
+	fullscreenHint->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+	PlaceFullscreenHint();
 
 	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
 	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
@@ -927,8 +968,26 @@ void StudioWindow::SetModifyProgram(bool on)
 
 /* Un clic ailleurs que dans un aperçu ou la liste des sources efface les
  * contours et la sélection affichés (la sélection est gardée). */
+void StudioWindow::PlaceFullscreenHint()
+{
+	if (!fullscreenHint || !settingsMenuAction)
+		return;
+	QMenuBar *bar = menuBar();
+	const QRect last = bar->actionGeometry(settingsMenuAction);
+	fullscreenHint->adjustSize();
+	const QSize size = fullscreenHint->sizeHint();
+	fullscreenHint->setGeometry(last.right() + 18, (bar->height() - size.height()) / 2, size.width(),
+				    size.height());
+	fullscreenHint->setVisible(last.isValid() && last.right() + 18 + size.width() < bar->width());
+}
+
 bool StudioWindow::eventFilter(QObject *watched, QEvent *event)
 {
+	if (fullscreenHint && watched == menuBar() &&
+	    (event->type() == QEvent::Resize || event->type() == QEvent::Show ||
+	     event->type() == QEvent::LayoutRequest))
+		QTimer::singleShot(0, this, &StudioWindow::PlaceFullscreenHint);
+
 	if (event->type() == QEvent::MouseButtonPress && isVisible()) {
 		auto *w = qobject_cast<QWidget *>(watched);
 		if (w && w->window() == this) {

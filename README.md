@@ -1,25 +1,39 @@
-# Destinations for OBS
+# Multidestination Studio
 
 Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
-des surfaces de QLab. Nom de projet provisoire.
+des surfaces de QLab.
 
-> Statut : **V0.8 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.7 a été testée dans OBS (sauf l'Output blending), la V0.8 pas encore.
+> Statut : **V0.9 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.8 a été testée dans OBS (sauf l'Output blending), la V0.9 pas encore.
 
 ## Installer
 
 Un seul fichier par système, dans la Release GitHub (ou l'onglet Actions →
 build → Artifacts) :
 
-- **Windows** : `destinations-for-obs-x.y.z-windows-x64-installer.exe`.
-  Installe dans `C:\ProgramData\obs-studio\plugins\destinations-for-obs`
+- **Windows** : `multidestination-studio-x.y.z-windows-x64-installer.exe`.
+  Installe dans `C:\ProgramData\obs-studio\plugins\multidestination-studio`
   (textes compris) et retire les anciennes copies manuelles mal placées.
-- **macOS** : `destinations-for-obs-x.y.z-macos-universal.pkg` (non signé :
+- **macOS** : `multidestination-studio-x.y.z-macos-universal.pkg` (non signé :
   Réglages Système → Confidentialité et sécurité → Ouvrir quand même).
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.9
+
+- Le projet s'appelle **multidestination-studio** (fichiers, plugin,
+  installeurs). Les destinations et réglages déjà enregistrés sont gardés.
+  L'installeur Windows supprime l'ancien plugin « destinations-for-obs » ;
+  sur macOS et Linux, désinstaller l'ancien à la main pour qu'OBS ne charge
+  pas les deux.
+- Interface traduite en norvégien (bokmål), avec les termes d'OBS.
+- Info « F11 pour basculer en plein écran » à côté des menus.
+- Destination absente de la scène : image hachurée barrée d'une croix et
+  badge rouge « Absente de cette scène ».
+- Noms des destinations en gras, taille adaptée à la colonne, abrégés si
+  besoin. Titres Aperçu / Programme encore plus grands.
 
 ## Nouveautés V0.8
 

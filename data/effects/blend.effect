@@ -1,4 +1,4 @@
-// Destinations for OBS — Output blending.
+// Multidestination Studio — Output blending.
 // Affiche une zone (region) du layout d'une destination sur une sortie,
 // avec fondu des bords (edge blending), correction gamma, relevé du noir
 // et mire de test.

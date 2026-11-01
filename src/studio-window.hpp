@@ -1,5 +1,5 @@
 /*
-Destinations for OBS
+Multidestination Studio
 Copyright (C) 2026 Sébastien Tombre
 
 This program is free software; you can redistribute it and/or modify
@@ -142,6 +142,7 @@ private:
 	void RemoveSelectedScenes();
 	void BuildWindowControls();
 	void UpdateWindowControls();
+	void PlaceFullscreenHint();
 	void NewBlendedDestination();
 	void EditBlending(Destination *dest);
 	void RefreshBlendProjectors(Destination *dest);
@@ -159,6 +160,8 @@ private:
 	 * survol de la souris. */
 	QWidget *windowControls = nullptr;
 	QPushButton *fullscreenButton = nullptr;
+	QWidget *fullscreenHint = nullptr;
+	QAction *settingsMenuAction = nullptr;
 	QListWidget *sceneList = nullptr;
 	QListWidget *sourceList = nullptr;
 	QToolButton *addSourceButton = nullptr;

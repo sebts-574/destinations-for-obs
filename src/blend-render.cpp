@@ -1,5 +1,5 @@
 /*
-Destinations for OBS
+Multidestination Studio
 Copyright (C) 2026 Sébastien Tombre
 
 This program is free software; you can redistribute it and/or modify
@@ -46,7 +46,7 @@ gs_effect_t *Effect()
 		effect = gs_effect_create_from_file(effectPath.c_str(), &errors);
 		if (!effect) {
 			effectFailed = true;
-			blog(LOG_ERROR, "[destinations-for-obs] blend.effect: %s", errors ? errors : "?");
+			blog(LOG_ERROR, "[multidestination-studio] blend.effect: %s", errors ? errors : "?");
 		}
 		bfree(errors);
 	}
