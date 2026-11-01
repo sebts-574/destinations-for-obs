@@ -254,7 +254,7 @@ static bool ChooseOption(QWidget *parent, const QString &title, const QString &i
 		auto *label = new QLabel(detail, &dialog);
 		label->setWordWrap(true);
 		label->setContentsMargins(24, 0, 0, 8);
-		label->setStyleSheet("color: palette(placeholder-text);");
+		label->setStyleSheet("color: palette(window-text);");
 		layout->addWidget(label);
 		return radio;
 	};

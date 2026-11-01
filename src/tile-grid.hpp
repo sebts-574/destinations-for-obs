@@ -61,6 +61,9 @@ public:
 	void SetFocused(bool focused);
 	/* Contours et sélection visibles (effacés quand on clique ailleurs). */
 	void SetHighlighted(bool value) { highlighted = value; }
+	/* Hauteur de l'en-tête (nom + boutons), fixée par la colonne. */
+	void SetHeaderHeight(int height);
+	static int HeaderHeightFor(int columnWidth);
 	void SetSelectedItem(int64_t id);
 	int64_t SelectedItem() const { return selectedId.load(); }
 	void RefreshHeader();

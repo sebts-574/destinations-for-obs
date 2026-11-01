@@ -70,7 +70,11 @@ public:
 
 	/* --- Cycle de vie de la collection de scènes --- */
 	void Save(obs_data_t *data) const;
-	void SetPendingLoad(obs_data_t *data) { pendingLoad = data; }
+	void SetPendingLoad(obs_data_t *data)
+	{
+		pendingLoad = data;
+		snapshot = data;
+	}
 	void ApplyLoad();
 	void Reset();
 
@@ -107,6 +111,8 @@ private:
 	OBSWeakSource previewScene;
 	OBSWeakSource programScene;
 	OBSData pendingLoad;
+	/* Dernières données de la collection en cours (voir Save). */
+	OBSData snapshot;
 	bool ready = false;
 	bool taking = false;
 	bool creatingScene = false;

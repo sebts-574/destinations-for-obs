@@ -139,6 +139,9 @@ private:
 	void ApplySceneOrderFromList();
 	void ApplySourceOrderFromList();
 	void MoveScene(int delta);
+	void RemoveSelectedScenes();
+	void BuildWindowControls();
+	void UpdateWindowControls();
 	void NewBlendedDestination();
 	void EditBlending(Destination *dest);
 	void RefreshBlendProjectors(Destination *dest);
@@ -152,6 +155,10 @@ private:
 	TileGrid *pvwGrid = nullptr;
 	TileGrid *pgmGrid = nullptr;
 	QWidget *monitors = nullptr;
+	/* Plein écran : Réduire / Plein écran / Quitter, en haut à droite au
+	 * survol de la souris. */
+	QWidget *windowControls = nullptr;
+	QPushButton *fullscreenButton = nullptr;
 	QListWidget *sceneList = nullptr;
 	QListWidget *sourceList = nullptr;
 	QToolButton *addSourceButton = nullptr;

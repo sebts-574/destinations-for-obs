@@ -23,6 +23,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "manager.hpp"
 #include "media-controls.hpp"
 #include "projector-window.hpp"
+#include "reorder-list.hpp"
 #include "blend-editor.hpp"
 #include "text.hpp"
 #include "tile-grid.hpp"
@@ -51,6 +52,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QScreen>
 #include <QShortcut>
 #include <QSpinBox>
+#include <QCursor>
 #include <QTimer>
 #include <QToolButton>
 #include <QToolTip>
@@ -147,6 +149,7 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 	BuildCentral();
 	BuildDocks();
 	BuildMenus();
+	BuildWindowControls();
 
 	Manager &m = Manager::Get();
 	connect(&m, &Manager::previewChanged, this, &StudioWindow::RebuildGrids);
@@ -214,6 +217,11 @@ void StudioWindow::BuildCentral()
 		l->setSpacing(2);
 		auto *t = new QLabel(label, col);
 		t->setAlignment(Qt::AlignCenter);
+		QFont font = t->font();
+		font.setPixelSize(24);
+		font.setBold(true);
+		t->setFont(font);
+		t->setContentsMargins(0, 4, 0, 6);
 		l->addWidget(t);
 		grid->setParent(col);
 		l->addWidget(grid, 1);
@@ -225,8 +233,10 @@ void StudioWindow::BuildCentral()
 	layout->addWidget(makeColumn(Tr("MDS.Preview"), pvwGrid), 1);
 
 	/* Boutons entre Aperçu et Programme, comme le mode Studio d'OBS. */
+	/* « Modifier le PGM » bien au-dessus de Transition / Cut, pour ne pas
+	 * le confondre avec eux. */
 	auto *controls = new QVBoxLayout();
-	controls->addStretch(1);
+	controls->addStretch(2);
 
 	modifyPgmButton = new QPushButton(Tr("MDS.ModifyProgram"), monitors);
 	modifyPgmButton->setCheckable(true);
@@ -236,6 +246,7 @@ void StudioWindow::BuildCentral()
 		"QPushButton:checked { background-color: #c62828; color: white; border-color: #c62828; }");
 	connect(modifyPgmButton, &QPushButton::toggled, this, &StudioWindow::SetModifyProgram);
 	controls->addWidget(modifyPgmButton);
+	controls->addStretch(3);
 
 	auto *transition = new QPushButton(Tr("MDS.Transition"), monitors);
 	transition->setToolTip(Tr("MDS.TransitionTip"));
@@ -245,7 +256,7 @@ void StudioWindow::BuildCentral()
 	cut->setToolTip(Tr("MDS.CutTip"));
 	connect(cut, &QPushButton::clicked, this, []() { Manager::Get().Take(true); });
 	controls->addWidget(cut);
-	controls->addStretch(1);
+	controls->addStretch(5);
 	layout->addLayout(controls);
 
 	layout->addWidget(makeColumn(Tr("MDS.Program"), pgmGrid), 1);
@@ -255,9 +266,11 @@ void StudioWindow::BuildCentral()
 void StudioWindow::BuildDocks()
 {
 	/* --- Scènes --- */
-	sceneList = new QListWidget(this);
-	sceneList->setDragDropMode(QAbstractItemView::InternalMove);
-	sceneList->setDefaultDropAction(Qt::MoveAction);
+	auto *scenes = new ReorderList(this);
+	scenes->onDelete = [this]() {
+		RemoveSelectedScenes();
+	};
+	sceneList = scenes;
 	auto sceneOrderChanged = [this]() {
 		if (refreshingScenes || sceneOrderPending)
 			return;
@@ -290,7 +303,7 @@ void StudioWindow::BuildDocks()
 				[this]() { MoveScene(sceneList->count()); });
 			menu.addSeparator();
 			connect(menu.addAction(Tr("MDS.RemoveScene")), &QAction::triggered, this,
-				[this, scene]() { RemoveScene(scene); });
+				[this]() { RemoveSelectedScenes(); });
 		}
 		menu.exec(sceneList->viewport()->mapToGlobal(pos));
 	});
@@ -300,7 +313,7 @@ void StudioWindow::BuildDocks()
 	auto *removeScene = ToolButton("−", Tr("MDS.RemoveScene"), this);
 	auto *editScene = ToolButton("⚙", Tr("MDS.SceneSettingsMenu"), this);
 	connect(addScene, &QToolButton::clicked, this, &StudioWindow::AddScene);
-	connect(removeScene, &QToolButton::clicked, this, [this]() { RemoveScene(SelectedScene()); });
+	connect(removeScene, &QToolButton::clicked, this, [this]() { RemoveSelectedScenes(); });
 	connect(editScene, &QToolButton::clicked, this, [this]() { EditScene(SelectedScene()); });
 	sceneButtons->addWidget(addScene);
 	sceneButtons->addWidget(removeScene);
@@ -314,10 +327,13 @@ void StudioWindow::BuildDocks()
 	auto *scenesDock = Dock(Tr("MDS.Scenes"), "mdsScenesDock", ListPanel(sceneList, sceneButtons, this), this);
 
 	/* --- Sources --- */
-	sourceList = new QListWidget(this);
-	/* Glisser-déposer pour changer l'ordre (haut de la liste = devant). */
-	sourceList->setDragDropMode(QAbstractItemView::InternalMove);
-	sourceList->setDefaultDropAction(Qt::MoveAction);
+	/* Glisser-déposer pour changer l'ordre (haut de la liste = devant),
+	 * cliquer-glisser pour sélectionner plusieurs sources. */
+	auto *sources = new ReorderList(this);
+	sources->onDelete = [this]() {
+		EditRemove();
+	};
+	sourceList = sources;
 	auto sourceOrderChanged = [this]() {
 		if (refreshingSources || sourceOrderPending)
 			return;
@@ -540,6 +556,17 @@ void StudioWindow::BuildMenus()
 	viewMenu = bar->addMenu(Tr("MDS.MenuView"));
 	for (QDockWidget *dock : findChildren<QDockWidget *>())
 		viewMenu->addAction(dock->toggleViewAction());
+	viewMenu->addSeparator();
+	auto *fullscreen = viewMenu->addAction(Tr("MDS.WindowFullscreen"));
+	fullscreen->setShortcut(QKeySequence(Qt::Key_F11));
+	fullscreen->setShortcutContext(Qt::WindowShortcut);
+	addAction(fullscreen);
+	connect(fullscreen, &QAction::triggered, this, [this]() {
+		if (isFullScreen())
+			showMaximized();
+		else
+			showFullScreen();
+	});
 
 	/* --- Réglages --- */
 	QMenu *settingsMenu = bar->addMenu(Tr("MDS.MenuSettings"));
@@ -556,6 +583,72 @@ void StudioWindow::BuildMenus()
 
 	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
 	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
+}
+
+/* ------------------------------------------------------------------ */
+/* Commandes de fenêtre en plein écran                                  */
+/* ------------------------------------------------------------------ */
+
+void StudioWindow::BuildWindowControls()
+{
+	windowControls = new QWidget(this);
+	windowControls->setObjectName("mdsWindowControls");
+	windowControls->setAttribute(Qt::WA_StyledBackground, true);
+	windowControls->setStyleSheet("#mdsWindowControls { background-color: rgba(20, 20, 20, 225); "
+				      "border-bottom-left-radius: 8px; }");
+	auto *layout = new QHBoxLayout(windowControls);
+	layout->setContentsMargins(8, 6, 8, 6);
+	layout->setSpacing(6);
+
+	auto *minimize = new QPushButton(Tr("MDS.WindowMinimize"), windowControls);
+	fullscreenButton = new QPushButton(Tr("MDS.WindowExitFullscreen"), windowControls);
+	auto *quit = new QPushButton(Tr("MDS.WindowQuit"), windowControls);
+	quit->setToolTip(Tr("MDS.WindowQuitTip"));
+	connect(minimize, &QPushButton::clicked, this, [this]() { showMinimized(); });
+	connect(fullscreenButton, &QPushButton::clicked, this, [this]() {
+		if (isFullScreen())
+			showMaximized();
+		else
+			showFullScreen();
+		UpdateWindowControls();
+	});
+	connect(quit, &QPushButton::clicked, this, &StudioWindow::Close);
+	layout->addWidget(minimize);
+	layout->addWidget(fullscreenButton);
+	layout->addWidget(quit);
+	windowControls->hide();
+
+	/* La souris dans le coin haut droit fait apparaître les commandes ;
+	 * elles disparaissent quand elle s'en éloigne. */
+	auto *timer = new QTimer(this);
+	connect(timer, &QTimer::timeout, this, &StudioWindow::UpdateWindowControls);
+	timer->start(120);
+}
+
+void StudioWindow::UpdateWindowControls()
+{
+	if (!windowControls)
+		return;
+	if (!isVisible() || !isFullScreen() || isMinimized()) {
+		windowControls->hide();
+		return;
+	}
+	fullscreenButton->setText(Tr("MDS.WindowExitFullscreen"));
+	windowControls->adjustSize();
+	const QSize size = windowControls->sizeHint();
+	windowControls->setGeometry(width() - size.width(), 0, size.width(), size.height());
+
+	const QPoint p = mapFromGlobal(QCursor::pos());
+	const bool shown = windowControls->isVisible();
+	const int zoneW = std::max(size.width() + 60, 320);
+	const int zoneH = shown ? size.height() + 30 : 36;
+	const bool inZone = rect().contains(p) && p.x() >= width() - zoneW && p.y() <= zoneH;
+	if (inZone && !shown) {
+		windowControls->show();
+		windowControls->raise();
+	} else if (!inZone && shown) {
+		windowControls->hide();
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -586,8 +679,8 @@ void StudioWindow::Open()
 
 	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
 	if (main && main->screen())
-		setGeometry(main->screen()->availableGeometry());
-	showMaximized();
+		setGeometry(main->screen()->geometry());
+	showFullScreen();
 	raise();
 	activateWindow();
 
@@ -1077,6 +1170,28 @@ void StudioWindow::RemoveScene(obs_source_t *scene)
 	Manager::Get().RemoveScene(scene);
 }
 
+void StudioWindow::RemoveSelectedScenes()
+{
+	std::vector<OBSSource> scenes;
+	for (QListWidgetItem *row : sceneList->selectedItems()) {
+		OBSSourceAutoRelease s =
+			obs_get_source_by_uuid(row->data(Qt::UserRole).toString().toUtf8().constData());
+		if (s)
+			scenes.emplace_back(s.Get());
+	}
+	if (scenes.empty())
+		return;
+	if (scenes.size() == 1) {
+		RemoveScene(scenes.front());
+		return;
+	}
+	if (QMessageBox::question(this, Tr("MDS.RemoveScene"), Tr("MDS.ConfirmRemoveScenes").arg(int(scenes.size()))) !=
+	    QMessageBox::Yes)
+		return;
+	for (auto &scene : scenes)
+		Manager::Get().RemoveScene(scene);
+}
+
 /* ------------------------------------------------------------------ */
 /* Sources                                                              */
 /* ------------------------------------------------------------------ */
@@ -1414,11 +1529,39 @@ void StudioWindow::EditPaste()
 
 void StudioWindow::EditRemove()
 {
-	OBSSceneItem item = CurrentItem();
-	if (!item)
+	obs_scene_t *s = ActiveScene();
+	if (!s)
 		return;
-	Undo::PushRemoved(ActiveScene(), item);
-	obs_sceneitem_remove(item);
+
+	/* Sources sélectionnées dans la liste (plusieurs possibles), sinon
+	 * celle sélectionnée dans l'aperçu. */
+	std::vector<OBSSceneItem> items;
+	if (sourceList->hasFocus() || sourceList->selectedItems().size() > 1) {
+		for (QListWidgetItem *row : sourceList->selectedItems()) {
+			if (obs_sceneitem_t *it =
+				    obs_scene_find_sceneitem_by_id(s, row->data(Qt::UserRole).toLongLong()))
+				items.emplace_back(it);
+		}
+	}
+	if (items.empty()) {
+		if (OBSSceneItem item = CurrentItem())
+			items.push_back(item);
+	}
+	if (items.empty())
+		return;
+
+	const QString question =
+		items.size() == 1
+			? Tr("MDS.ConfirmRemoveSource")
+				  .arg(QString::fromUtf8(obs_source_get_name(obs_sceneitem_get_source(items.front()))))
+			: Tr("MDS.ConfirmRemoveSources").arg(int(items.size()));
+	if (QMessageBox::question(this, Tr("MDS.RemoveSource"), question) != QMessageBox::Yes)
+		return;
+
+	for (auto &item : items) {
+		Undo::PushRemoved(s, item);
+		obs_sceneitem_remove(item);
+	}
 	SelectItem(-1);
 	AfterEdit();
 }
@@ -1607,7 +1750,7 @@ void StudioWindow::FillDestinationsMenu()
 
 		sub->addSeparator();
 		if (d->IsMain()) {
-			QAction *disable = sub->addAction(Tr("MDS.DeactivateAndHide"));
+			QAction *disable = sub->addAction(Tr("MDS.DeactivateAndHide").replace("&", "&&"));
 			disable->setCheckable(true);
 			disable->setChecked(d->Disabled());
 			disable->setToolTip(Tr("MDS.DeactivateAndHideTip"));

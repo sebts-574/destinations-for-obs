@@ -211,19 +211,36 @@ void TileWidget::resizeEvent(QResizeEvent *event)
 	FitHeaderButtons();
 }
 
+int TileWidget::HeaderHeightFor(int columnWidth)
+{
+	return std::clamp(columnWidth / 20, 26, 40);
+}
+
+void TileWidget::SetHeaderHeight(int height)
+{
+	if (header->height() == height && header->minimumHeight() == height)
+		return;
+	header->setFixedHeight(height);
+	focusButton->setFixedHeight(height);
+	if (lockButton)
+		lockButton->setFixedHeight(height);
+	FitHeaderButtons();
+}
+
 void TileWidget::FitHeaderButtons()
 {
-	/* Taille de texte selon la largeur de la tuile, puis texte complet
-	 * (« ⛶ Agrandir ») ou symbole seul (« ⛶ ») si la place manque. Le
-	 * détail reste dans l'info-bulle. */
-	const int w = std::max(1, width());
+	/* Texte proportionnel à la hauteur de l'en-tête (elle-même liée à la
+	 * largeur de la colonne). Texte complet (« ⛶ Agrandir ») si tout tient,
+	 * sinon symbole seul ; le détail reste dans l'info-bulle. Les boutons
+	 * sont dimensionnés d'après leur texte pour ne jamais le couper. */
+	const int h = std::max(HEADER_HEIGHT, header->height());
 	QFont font = focusButton->font();
-	font.setPixelSize(std::clamp(w / 36, 10, 13));
-	headerLabel->setFont([&]() {
-		QFont f = font;
-		f.setBold(active.load());
-		return f;
-	}());
+	font.setPixelSize(std::clamp(h * 45 / 100, 12, 18));
+	font.setBold(false);
+
+	QFont labelFont = font;
+	labelFont.setBold(active.load());
+	headerLabel->setFont(labelFont);
 
 	const QString focusFull = focused ? Tr("MDS.Unfocus") : Tr("MDS.Focus");
 	const QString lockFull = dest->Locked() ? Tr("MDS.Locked") : Tr("MDS.Lock");
@@ -232,19 +249,26 @@ void TileWidget::FitHeaderButtons()
 	};
 
 	const QFontMetrics fm(font);
-	const int padding = 18;
-	int needed = fm.horizontalAdvance(focusFull) + padding;
-	if (lockButton)
-		needed += fm.horizontalAdvance(lockFull) + padding;
-	const int labelMin = std::min(fm.horizontalAdvance(headerLabel->text()), 160);
-	const bool full = needed + labelMin + 12 <= w;
+	const int padding = 2 * std::max(12, h / 2);
+	auto widthFor = [&](const QString &text) {
+		return fm.horizontalAdvance(text) + padding;
+	};
 
+	int needed = widthFor(focusFull);
+	if (lockButton)
+		needed += widthFor(lockFull);
+	const int labelMin = std::min(QFontMetrics(labelFont).horizontalAdvance(headerLabel->text()), 140);
+	const bool full = needed + labelMin + 16 <= std::max(1, width());
+
+	const QString focusText = full ? focusFull : symbol(focusFull);
 	focusButton->setFont(font);
-	focusButton->setText(full ? focusFull : symbol(focusFull));
-	focusButton->setMinimumWidth(0);
+	focusButton->setText(focusText);
+	focusButton->setFixedWidth(widthFor(focusText));
 	if (lockButton) {
+		const QString lockText = full ? lockFull : symbol(lockFull);
 		lockButton->setFont(font);
-		lockButton->setText(full ? lockFull : symbol(lockFull));
+		lockButton->setText(lockText);
+		lockButton->setFixedWidth(widthFor(lockText));
 	}
 }
 
@@ -718,7 +742,8 @@ void TileGrid::Relayout()
 		natural += W / a;
 	}
 
-	const double fixed = double(n) * HEADER_HEIGHT + double(GRID_GAP) * double(n - 1);
+	const int headerH = TileWidget::HeaderHeightFor(int(W));
+	const double fixed = double(n) * headerH + double(GRID_GAP) * double(n - 1);
 	const double room = H - fixed;
 	if (room <= 0.0)
 		return;
@@ -733,7 +758,8 @@ void TileGrid::Relayout()
 		const double h = W / aspect[i] * scale;
 		const double w = h * aspect[i];
 		const double x = (W - w) / 2.0;
-		tiles[i]->setGeometry(int(x), int(y), int(w), int(h) + HEADER_HEIGHT);
-		y += h + HEADER_HEIGHT + GRID_GAP;
+		tiles[i]->SetHeaderHeight(headerH);
+		tiles[i]->setGeometry(int(x), int(y), int(w), int(h) + headerH);
+		y += h + headerH + GRID_GAP;
 	}
 }

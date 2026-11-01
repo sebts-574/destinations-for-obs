@@ -201,7 +201,7 @@ void BlendLayoutView::paintEvent(QPaintEvent *)
 
 	const QRectF lr = LayoutRect();
 	if (lr.isEmpty()) {
-		painter.setPen(palette().color(QPalette::PlaceholderText));
+		painter.setPen(palette().color(QPalette::WindowText));
 		painter.drawText(rect(), Qt::AlignCenter | Qt::TextWordWrap, Tr("MDS.BlendEmptyHint"));
 		return;
 	}
@@ -209,7 +209,7 @@ void BlendLayoutView::paintEvent(QPaintEvent *)
 	painter.fillRect(lr, QColor(0x1B, 0x1B, 0x1B));
 	painter.setPen(QPen(QColor(0x9A, 0x9A, 0x9A), 1.0));
 	painter.drawRect(lr);
-	painter.setPen(palette().color(QPalette::PlaceholderText));
+	painter.setPen(palette().color(QPalette::WindowText));
 	painter.drawText(QRectF(lr.x(), lr.bottom() + 2, lr.width(), 18), Qt::AlignRight | Qt::AlignTop,
 			 QString("%1 × %2").arg(config->width).arg(config->height));
 
@@ -524,7 +524,7 @@ void BlendEditor::BuildUi()
 	leftLayout->addWidget(removeButton);
 	hint = new QLabel(Tr("MDS.BlendDragHint"), left);
 	hint->setWordWrap(true);
-	hint->setStyleSheet("color: palette(placeholder-text);");
+	hint->setStyleSheet("color: palette(window-text);");
 	leftLayout->addWidget(hint);
 	connect(newButton, &QPushButton::clicked, this, &BlendEditor::AddOutput);
 	connect(removeButton, &QPushButton::clicked, this, &BlendEditor::RemoveOutput);
@@ -551,7 +551,7 @@ void BlendEditor::BuildUi()
 	centerLayout->addWidget(view, 1);
 	auto *viewHint = new QLabel(Tr("MDS.BlendViewHint"), center);
 	viewHint->setWordWrap(true);
-	viewHint->setStyleSheet("color: palette(placeholder-text);");
+	viewHint->setStyleSheet("color: palette(window-text);");
 	centerLayout->addWidget(viewHint);
 
 	connect(layoutW, &QSpinBox::editingFinished, this,
@@ -771,7 +771,7 @@ void BlendEditor::BuildUi()
 		saveButton->setDefault(true);
 	} else {
 		auto *cancel = new QPushButton(Tr("MDS.Cancel"), this);
-		createButton = new QPushButton(Tr("MDS.SaveAndCreate"), this);
+		createButton = new QPushButton(Tr("MDS.SaveAndCreate").replace("&", "&&"), this);
 		bottom->addWidget(cancel);
 		bottom->addWidget(createButton);
 		connect(cancel, &QPushButton::clicked, this, &BlendEditor::reject);

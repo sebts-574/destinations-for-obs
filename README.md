@@ -4,8 +4,8 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.7 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.6 a été testée dans OBS (sauf l'Output blending), la V0.7 pas encore.
+> Statut : **V0.8 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.7 a été testée dans OBS (sauf l'Output blending), la V0.8 pas encore.
 
 ## Installer
 
@@ -20,6 +20,25 @@ build → Artifacts) :
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.8
+
+- Les destinations sont gardées dans la collection de scènes même quand
+  OBS enregistre pendant sa fermeture (elles étaient perdues au
+  redémarrage).
+- Multidestination Studio s'ouvre en plein écran. Souris en haut à droite :
+  « Réduire », « Quitter le plein écran », « Quitter ». F11 bascule le
+  plein écran.
+- Sélection de plusieurs scènes ou sources par cliquer-glisser (Maj / Ctrl
+  aussi). Pour déplacer, cliquer-glisser depuis un élément déjà
+  sélectionné.
+- Suppr supprime les scènes ou sources sélectionnées, après confirmation.
+- Réglages par défaut : « L'ancien Programme revient en Aperçu » et
+  « Toutes les destinations, en permanence », marqués « (recommandé) ».
+- Boutons Agrandir / Verrouiller dimensionnés d'après leur texte, en-tête
+  plus haut sur les grandes colonnes ; titres Aperçu / Programme en grand
+  et en gras ; « Modifier le PGM » détaché de Transition / Cut ; textes
+  d'aide en blanc.
 
 ## Nouveautés V0.7
 

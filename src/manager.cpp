@@ -271,6 +271,15 @@ void Manager::OnObsProgramChanged()
 
 void Manager::Save(obs_data_t *data) const
 {
+	/* Pas (ou plus) chargé : OBS enregistre la collection pendant sa
+	 * fermeture, après que les destinations ont été libérées. On réécrit
+	 * alors les dernières données connues au lieu d'une liste vide. */
+	if (!ready) {
+		if (snapshot)
+			obs_data_apply(data, snapshot);
+		return;
+	}
+
 	OBSDataArrayAutoRelease list = obs_data_array_create();
 	for (auto &d : destinations) {
 		OBSDataAutoRelease item = obs_data_create();
@@ -333,6 +342,11 @@ void Manager::ApplyLoad()
 void Manager::Reset()
 {
 	emit aboutToReset();
+	if (ready) {
+		OBSDataAutoRelease last = obs_data_create();
+		Save(last);
+		snapshot = last.Get();
+	}
 	ready = false;
 	while (destinations.size() > 1) {
 		destinations.back()->Detach();
@@ -354,7 +368,7 @@ void Manager::LoadSettings()
 	if (!config)
 		return;
 	config_set_default_bool(config, SETTINGS_SECTION, "SwapAfterTake", true);
-	config_set_default_bool(config, SETTINGS_SECTION, "ShowAllDestinations", false);
+	config_set_default_bool(config, SETTINGS_SECTION, "ShowAllDestinations", true);
 	swapAfterTake = config_get_bool(config, SETTINGS_SECTION, "SwapAfterTake");
 	showAllDestinations = config_get_bool(config, SETTINGS_SECTION, "ShowAllDestinations");
 }
