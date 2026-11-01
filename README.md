@@ -4,7 +4,7 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab.
 
-> Statut : **V0.9.1 — prototype**. Compile pour macOS, Windows et Linux ;
+> Statut : **V0.9.2 — prototype**. Compile pour macOS, Windows et Linux ;
 > la V0.8 a été testée dans OBS (sauf l'Output blending), la V0.9 pas encore.
 
 ## Installer
@@ -20,6 +20,13 @@ build → Artifacts) :
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.9.2
+
+- Installeur Windows : le plugin s'installait dans l'ancien dossier
+  « destinations-for-obs » (repris de l'installation précédente), qu'OBS
+  ignore puisque le plugin s'appelle maintenant multidestination-studio. Il
+  s'installe désormais toujours dans `plugins\multidestination-studio`.
 
 ## Nouveautés V0.9.1
 

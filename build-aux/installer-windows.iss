@@ -22,6 +22,11 @@ AppPublisherURL=https://github.com/sebts-574/multidestination-studio
 ; Emplacement officiel des plugins OBS (28+), conservé lors des mises à jour d'OBS.
 DefaultDirName={commonappdata}\obs-studio\plugins\multidestination-studio
 DisableDirPage=yes
+; Toujours le dossier ci-dessus : sinon Inno reprend le dossier de
+; l'installation précédente (même AppId), c'est-à-dire l'ancien dossier
+; « destinations-for-obs », et OBS ne charge pas un plugin dont le dossier
+; ne porte pas son nom.
+UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 DisableReadyPage=no
 OutputDir={#OutDir}
