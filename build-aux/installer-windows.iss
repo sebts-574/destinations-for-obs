@@ -1,0 +1,84 @@
+﻿; Installeur Windows de Multidestination Studio (plugin OBS « destinations-for-obs »).
+; Compilé par GitHub Actions avec Inno Setup :
+;   ISCC /DMyVersion=x.y.z /DSrcDir=<dossier du plugin> /DOutDir=<sortie> installer-windows.iss
+; <dossier du plugin> contient bin\64bit\destinations-for-obs.dll et data\locale\*.ini.
+
+#ifndef MyVersion
+  #define MyVersion "0.0.0"
+#endif
+#ifndef SrcDir
+  #define SrcDir "..\release\RelWithDebInfo\destinations-for-obs"
+#endif
+#ifndef OutDir
+  #define OutDir "..\release"
+#endif
+
+[Setup]
+AppId={{6B8C2F4E-1D3A-4E7B-9A51-2C7D8E0F4A13}
+AppName=Multidestination Studio for OBS
+AppVersion={#MyVersion}
+AppPublisher=Sébastien Tombre
+AppPublisherURL=https://github.com/sebts-574/destinations-for-obs
+; Emplacement officiel des plugins OBS (28+), conservé lors des mises à jour d'OBS.
+DefaultDirName={commonappdata}\obs-studio\plugins\destinations-for-obs
+DisableDirPage=yes
+DisableProgramGroupPage=yes
+DisableReadyPage=no
+OutputDir={#OutDir}
+OutputBaseFilename=destinations-for-obs-{#MyVersion}-windows-x64-installer
+Compression=lzma2
+SolidCompression=yes
+PrivilegesRequired=admin
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+UninstallDisplayName=Multidestination Studio for OBS
+UninstallFilesDir={app}\uninstall
+WizardStyle=modern
+
+[Languages]
+Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
+Name: "en"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+fr.CloseObs=Fermez OBS Studio avant de continuer.
+en.CloseObs=Please close OBS Studio before continuing.
+
+[Messages]
+fr.WelcomeLabel2=Cet assistant installe [name/ver] dans OBS Studio.%n%nFermez OBS Studio avant de continuer.
+en.WelcomeLabel2=This will install [name/ver] into OBS Studio.%n%nPlease close OBS Studio before continuing.
+
+[InstallDelete]
+; Version précédente au même endroit.
+Type: filesandordirs; Name: "{app}\bin"
+Type: filesandordirs; Name: "{app}\data"
+; Copies manuelles mal placées des versions de test.
+Type: files; Name: "{commonpf64}\obs-studio\obs-plugins\64bit\destinations-for-obs.dll"
+Type: files; Name: "{commonpf64}\obs-studio\obs-plugins\64bit\destinations-for-obs.pdb"
+Type: filesandordirs; Name: "{commonpf64}\obs-studio\obs-plugins\64bit\destinations-for-obs"
+Type: filesandordirs; Name: "{commonpf64}\obs-studio\data\obs-plugins\destinations-for-obs"
+
+[Files]
+Source: "{#SrcDir}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[Code]
+function IsObsRunning(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  { tasklist renvoie 0 dans tous les cas : on cherche le processus via find. }
+  Result := Exec(ExpandConstant('{cmd}'), '/C tasklist /FI "IMAGENAME eq obs64.exe" | find /I "obs64.exe" >NUL',
+                 '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  while IsObsRunning() do
+  begin
+    if MsgBox(CustomMessage('CloseObs'), mbInformation, MB_OKCANCEL) = IDCANCEL then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;

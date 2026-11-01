@@ -28,6 +28,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <vector>
 
 class AudioMixer;
+class MediaControls;
 class Destination;
 class ProjectorWindow;
 class TileGrid;
@@ -64,6 +65,8 @@ public:
 
 protected:
 	void closeEvent(QCloseEvent *event) override;
+	void dragEnterEvent(QDragEnterEvent *event) override;
+	void dropEvent(QDropEvent *event) override;
 
 private slots:
 	void RebuildGrids() { UpdateGrids(false); }
@@ -78,8 +81,12 @@ private:
 	void BuildDocks();
 	void BuildMenus();
 	void ConnectTile(TileWidget *tile);
-	void SetActiveDestination(Destination *dest);
-	TileWidget *ActivePreviewTile() const;
+	void SetActiveTile(TileWidget *tile);
+	TileWidget *ActiveTile() const;
+	obs_scene_t *ActiveScene() const;
+	void SetModifyProgram(bool on);
+	void ToggleFocus(Destination *dest);
+	void UpdateMediaControls();
 	void UpdateShowing(const std::vector<OBSSource> &next);
 
 	/* Scènes */
@@ -93,11 +100,14 @@ private:
 	void SelectItem(int64_t id);
 	void FillAddSourceMenu(QMenu *menu);
 	void CreateNewSource(const char *typeId);
-	void AddExistingSource(obs_source_t *source);
+	void AddExistingSource(obs_source_t *source, bool freshMedia = false);
+	void AddFiles(const QStringList &paths, TileWidget *target);
+	void ShowAddSourceMenu();
 	void ShowItemMenu(const QPoint &globalPos);
 
 	/* Édition (menus + raccourcis) */
 	QAction *MakeEditAction(const QString &text, const QList<QKeySequence> &keys, void (StudioWindow::*fn)());
+	void EditUndo();
 	void EditCopy();
 	void EditPaste();
 	void EditRemove();
@@ -124,6 +134,7 @@ private:
 	bool HasProjector(Destination *dest) const;
 
 	void UpdateControls();
+	void ShowMainDisabledHint(QWidget *anchor);
 
 	TileGrid *pvwGrid = nullptr;
 	TileGrid *pgmGrid = nullptr;
@@ -132,6 +143,8 @@ private:
 	QListWidget *sourceList = nullptr;
 	QToolButton *addSourceButton = nullptr;
 	AudioMixer *mixer = nullptr;
+	MediaControls *mediaControls = nullptr;
+	QPushButton *modifyPgmButton = nullptr;
 	QComboBox *transitionCombo = nullptr;
 	QSpinBox *durationSpin = nullptr;
 	QPushButton *streamButton = nullptr;
@@ -141,6 +154,10 @@ private:
 	std::vector<QAction *> editActions;
 
 	Destination *activeDest = nullptr;
+	bool activeIsProgram = false;
+	Destination *focusDest = nullptr;
+	bool modifyProgram = false;
+	bool enabledObsStudioMode = false;
 	std::vector<OBSSource> showing;
 	std::vector<std::pair<Destination *, QPointer<ProjectorWindow>>> projectors;
 	bool refreshingSources = false;

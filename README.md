@@ -4,8 +4,44 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.3 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.2 a été testée dans OBS, la V0.3 pas encore.
+> Statut : **V0.4 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.3 a été testée dans OBS, la V0.4 pas encore.
+
+## Installer
+
+Un seul fichier par système, dans la Release GitHub (ou l'onglet Actions →
+build → Artifacts) :
+
+- **Windows** : `destinations-for-obs-x.y.z-windows-x64-installer.exe`.
+  Installe dans `C:\ProgramData\obs-studio\plugins\destinations-for-obs`
+  (textes compris) et retire les anciennes copies manuelles mal placées.
+- **macOS** : `destinations-for-obs-x.y.z-macos-universal.pkg` (non signé :
+  Réglages Système → Confidentialité et sécurité → Ouvrir quand même).
+- **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
+
+Fermer OBS avant d'installer.
+
+## Nouveautés V0.4
+
+- **Modifier le PGM** (au-dessus de Transition, rouge quand activé) : par
+  défaut, ce qui est à l'antenne est une copie de la scène ; les retouches
+  faites en Aperçu ne passent à l'antenne qu'à la transition suivante.
+  Activé, le Programme devient éditable directement.
+- **Agrandir** une destination (Aperçu + Programme) pour placer finement.
+- Édition : proportions gardées sur toutes les poignées (Maj pour les
+  libérer), aimant seulement au centre, débordement autorisé avec contour
+  orange, contours et guides verts, guides seulement sur la destination
+  active, contour vert discret autour de la destination de travail.
+- **Annuler** (Ctrl+Z).
+- **Glisser-déposer** de fichiers (images, vidéos, sons, pages HTML).
+- **Contrôles média** (lecture, pause, arrêt, position) ; un média ajouté a
+  tout de suite un cadre à placer, et s'arrête sur sa première image.
+- **Mixeur** : sources actives puis celles de la scène sélectionnée,
+  « Tout afficher », écoute (monitoring) par source.
+- **Destination par défaut** : « Désactiver et masquer » (menu
+  Destinations) ; ses scènes sont mémorisées.
+- **Nouvelle destination** : case « Ajouter aux scènes existantes »
+  (décochée par défaut).
 
 ## Multidestination Studio (V0.3)
 
@@ -78,6 +114,7 @@ compile pour les trois systèmes. Les fichiers sont dans l'onglet **Actions**
 | V0.1 | Une destination : scènes, PVW/PGM, transitions, projecteur |
 | V0.2 | Scènes communes, vue Studio, édition à la souris, TAKE global, N destinations |
 | V0.3 | Multidestination Studio façon OBS, sources, mixeur, transition globale, menu Destinations |
+| V0.4 | Modifier le PGM, agrandir, annuler, glisser-déposer, médias, mixeur, installeurs |
 | V0.3 | Layout : tranches, edge blending (courbe + gamma), corner pin |
 | V0.4 | Sorties par tranche : DeckLink, NDI ; stream et enregistrement |
 

@@ -23,9 +23,10 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 namespace SceneEditor {
 
-static constexpr uint32_t SELECTION_COLOR = 0xFFE03C3C;
+static constexpr uint32_t SELECTION_COLOR = 0xFF2ECC40; /* vert */
+static constexpr uint32_t OUTSIDE_COLOR = 0xFFFF9500;   /* orange : dépasse du cadre */
 static constexpr uint32_t HANDLE_COLOR = 0xFFFFFFFF;
-static constexpr uint32_t GUIDE_COLOR = 0xFFE03C3C;
+static constexpr uint32_t GUIDE_COLOR = 0xFF2ECC40;
 
 static void AlignOffset(uint32_t align, float w, float h, float &ox, float &oy)
 {
@@ -259,7 +260,13 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 			if (std::fabs(box.y + box.h * 0.5f - c->ch * 0.5f) <= tol)
 				DrawSolidRect(0.0f, c->ch * 0.5f - 0.5f * c->px, c->cw, c->px, GUIDE_COLOR);
 
-			DrawOutline(box.x, box.y, box.w, box.h, 2.0f * c->px, SELECTION_COLOR);
+			/* Orange si la source dépasse du cadre (sans la limiter). */
+			const float eps = 0.5f;
+			const bool outside = box.x < -eps || box.y < -eps || box.x + box.w > c->cw + eps ||
+					     box.y + box.h > c->ch + eps;
+			const uint32_t color = outside ? OUTSIDE_COLOR : SELECTION_COLOR;
+
+			DrawOutline(box.x, box.y, box.w, box.h, 2.0f * c->px, color);
 
 			const float hs = 8.0f * c->px;
 			const float xs[3] = {box.x, box.x + box.w * 0.5f, box.x + box.w};
@@ -269,7 +276,7 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 					if (ix == 1 && iy == 1)
 						continue;
 					DrawSolidRect(xs[ix] - hs * 0.5f - c->px, ys[iy] - hs * 0.5f - c->px,
-						      hs + 2.0f * c->px, hs + 2.0f * c->px, SELECTION_COLOR);
+						      hs + 2.0f * c->px, hs + 2.0f * c->px, color);
 					DrawSolidRect(xs[ix] - hs * 0.5f, ys[iy] - hs * 0.5f, hs, hs, HANDLE_COLOR);
 				}
 			}

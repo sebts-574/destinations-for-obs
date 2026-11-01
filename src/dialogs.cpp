@@ -80,7 +80,7 @@ bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set
 	auto *group = new QGroupBox(Tr("MDS.ShowSceneOn"), &dialog);
 	auto *groupLayout = new QVBoxLayout(group);
 	std::vector<std::pair<Destination *, QCheckBox *>> boxes;
-	for (auto *d : Manager::Get().Destinations()) {
+	for (auto *d : Manager::Get().ActiveDestinations()) {
 		auto *box = new QCheckBox(
 			QString("%1  (%2×%3)").arg(QString::fromStdString(d->Name())).arg(d->Width()).arg(d->Height()),
 			group);
@@ -185,6 +185,14 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 		});
 	}
 
+	QCheckBox *addToExisting = nullptr;
+	if (!dest) {
+		addToExisting = new QCheckBox(Tr("MDS.AddToExistingScenes"), &dialog);
+		addToExisting->setChecked(settings.addToExisting);
+		addToExisting->setToolTip(Tr("MDS.AddToExistingScenesTip"));
+		form->addRow(addToExisting);
+	}
+
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
 	if (!dest)
 		buttons->button(QDialogButtonBox::Ok)->setText(Tr("MDS.Create"));
@@ -202,6 +210,8 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 	if (heightSpin)
 		settings.height = uint32_t(heightSpin->value());
 	settings.outputScreen = screenCombo->currentData().toString().toStdString();
+	if (addToExisting)
+		settings.addToExisting = addToExisting->isChecked();
 	return isMain || !settings.name.empty();
 }
 

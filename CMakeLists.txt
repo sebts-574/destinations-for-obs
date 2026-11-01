@@ -64,6 +64,10 @@ target_sources(
     src/audio-mixer.cpp
     src/audio-mixer.hpp
     src/text.cpp
+    src/undo.cpp
+    src/undo.hpp
+    src/media-controls.cpp
+    src/media-controls.hpp
     src/text.hpp
     src/default-strings.hpp
     src/projector-window.cpp

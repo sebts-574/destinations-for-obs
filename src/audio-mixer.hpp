@@ -57,15 +57,18 @@ private:
 	QProgressBar *meter = nullptr;
 	QSlider *slider = nullptr;
 	QToolButton *muteButton = nullptr;
+	QToolButton *monitorButton = nullptr;
 	bool updating = false;
 };
 
-/* Mixeur audio : toutes les sources qui ont du son. */
+/* Mixeur audio. Mode scène : d'abord les sources actives, puis celles de la
+ * scène sélectionnée, avec un bouton « Tout afficher ». Mode complet : toutes
+ * les sources qui ont du son. */
 class AudioMixer : public QWidget {
 	Q_OBJECT
 
 public:
-	explicit AudioMixer(QWidget *parent);
+	AudioMixer(QWidget *parent, bool showAll);
 
 	void Refresh();
 	void Clear();
@@ -73,6 +76,7 @@ public:
 private:
 	std::vector<std::string> CurrentSourceIds() const;
 
+	bool showAll;
 	QVBoxLayout *stripsLayout = nullptr;
 	std::vector<AudioStrip *> strips;
 	std::vector<std::string> shownIds;

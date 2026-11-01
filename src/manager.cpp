@@ -40,7 +40,26 @@ std::vector<Destination *> Manager::Destinations() const
 	return list;
 }
 
-Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t height)
+std::vector<Destination *> Manager::ActiveDestinations() const
+{
+	std::vector<Destination *> list;
+	for (auto &d : destinations) {
+		if (!d->Disabled())
+			list.push_back(d.get());
+	}
+	return list;
+}
+
+void Manager::SetMainDisabled(bool disabled)
+{
+	if (!Main() || Main()->Disabled() == disabled)
+		return;
+	Main()->SetDisabled(disabled);
+	emit destinationsChanged();
+	emit scenesChanged();
+}
+
+Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t height, bool addToExisting)
 {
 	auto dest = std::make_unique<Destination>(name);
 	if (!dest->Attach(width, height))
@@ -49,10 +68,12 @@ Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t heig
 	Destination *raw = dest.get();
 	destinations.push_back(std::move(dest));
 
-	creatingScene = true;
-	for (auto &scene : MainScenes())
-		raw->AddCoverage(scene);
-	creatingScene = false;
+	if (addToExisting) {
+		creatingScene = true;
+		for (auto &scene : MainScenes())
+			raw->AddCoverage(scene);
+		creatingScene = false;
+	}
 
 	emit destinationsChanged();
 	emit scenesChanged();
@@ -119,6 +140,9 @@ void Manager::SetCoverage(obs_source_t *mainScene, const std::set<Destination *>
 		return;
 	creatingScene = true;
 	for (auto &d : destinations) {
+		/* Destination désactivée : ses scènes restent mémorisées. */
+		if (d->Disabled())
+			continue;
 		const bool wanted = coverage.count(d.get()) > 0;
 		if (wanted && !d->Covers(mainScene))
 			d->AddCoverage(mainScene);

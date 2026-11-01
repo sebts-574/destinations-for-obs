@@ -20,21 +20,20 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "destination.hpp"
 #include "qt-display.hpp"
 #include "render-helpers.hpp"
+#include "text.hpp"
+#include "undo.hpp"
 
 #include <obs-frontend-api.h>
-#include <obs-module.h>
 
+#include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
-#include <QPushButton>
-#include <QHBoxLayout>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <cmath>
-
-#include "text.hpp"
 
 using SceneEditor::Box;
 
@@ -42,6 +41,7 @@ static constexpr int HEADER_HEIGHT = 24;
 static constexpr int GRID_GAP = 6;
 static constexpr float HANDLE_TOLERANCE_PX = 7.0f;
 static constexpr float SNAP_PX = 8.0f;
+static constexpr uint32_t ACTIVE_FRAME_COLOR = 0xB0228B3A; /* vert discret */
 
 /* ------------------------------------------------------------------ */
 /* Affichage avec souris et clavier                                     */
@@ -79,6 +79,8 @@ TileWidget::TileWidget(Destination *destination, bool program_, QWidget *parent)
 	  dest(destination),
 	  program(program_)
 {
+	editable = !program;
+
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->setSpacing(2);
@@ -90,6 +92,12 @@ TileWidget::TileWidget(Destination *destination, bool program_, QWidget *parent)
 	headerLayout->setSpacing(4);
 	headerLabel = new QLabel(header);
 	headerLayout->addWidget(headerLabel, 1);
+
+	focusButton = new QPushButton(header);
+	focusButton->setFixedHeight(HEADER_HEIGHT);
+	focusButton->setToolTip(Tr("MDS.FocusTip"));
+	connect(focusButton, &QPushButton::clicked, this, [this]() { emit focusRequested(this); });
+	headerLayout->addWidget(focusButton);
 
 	if (!program) {
 		lockButton = new QPushButton(header);
@@ -129,8 +137,10 @@ void TileWidget::SetLinkedScene(obs_source_t *scene)
 			return;
 		linkedScene = scene ? OBSGetWeakRef(scene) : OBSWeakSource();
 	}
-	selectedId = -1;
-	drag = Drag::None;
+	if (!program) {
+		selectedId = -1;
+		drag = Drag::None;
+	}
 	RefreshHeader();
 }
 
@@ -140,19 +150,31 @@ OBSSource TileWidget::LinkedScene() const
 	return OBSGetStrongRef(linkedScene);
 }
 
+OBSSource TileWidget::EditScene() const
+{
+	return program ? dest->LiveScene() : LinkedScene();
+}
+
+void TileWidget::SetEditable(bool value)
+{
+	editable = value;
+	if (!value) {
+		selectedId = -1;
+		drag = Drag::None;
+	}
+}
+
 void TileWidget::SetActive(bool value)
 {
-	if (active == value)
+	if (active.load() == value)
 		return;
 	active = value;
 	RefreshHeader();
 }
 
-void TileWidget::SetTally(bool value)
+void TileWidget::SetFocused(bool value)
 {
-	if (onAir == value)
-		return;
-	onAir = value;
+	focused = value;
 	RefreshHeader();
 }
 
@@ -173,8 +195,10 @@ void TileWidget::RefreshHeader()
 	headerLabel->setText(text);
 
 	QFont font = headerLabel->font();
-	font.setBold(active);
+	font.setBold(active.load());
 	headerLabel->setFont(font);
+
+	focusButton->setText(focused ? Tr("MDS.Unfocus") : Tr("MDS.Focus"));
 
 	if (lockButton) {
 		const QSignalBlocker blocker(lockButton);
@@ -196,28 +220,36 @@ void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 
 	const uint32_t w = d->Width();
 	const uint32_t h = d->Height();
-
-	if (tile->program) {
-		DrawFitted(w, h, cx, cy, [d](float) { d->RenderProgram(); });
-		return;
-	}
-
-	OBSSource scene = tile->LinkedScene();
+	const bool isActive = tile->active.load();
+	const bool canEdit = tile->editable.load();
 	const int64_t selected = tile->selectedId.load();
 
 	DrawFitted(w, h, cx, cy, [&](float screenScale) {
-		if (!scene) {
-			/* Scène non couverte : la destination garde son Program,
-			 * affiché assombri. */
+		const float px = 1.0f / screenScale;
+		OBSSource scene;
+
+		if (tile->program) {
 			d->RenderProgram();
-			DrawSolidRect(0.0f, 0.0f, float(w), float(h), 0xB0000000);
-			return;
+			if (canEdit)
+				scene = d->LiveScene();
+		} else {
+			scene = tile->LinkedScene();
+			DrawSolidRect(0.0f, 0.0f, float(w), float(h), 0xFF000000);
+			if (scene) {
+				const bool previous = gs_set_linear_srgb(true);
+				obs_source_video_render(scene);
+				gs_set_linear_srgb(previous);
+			}
 		}
-		DrawSolidRect(0.0f, 0.0f, float(w), float(h), 0xFF000000);
-		const bool previous = gs_set_linear_srgb(true);
-		obs_source_video_render(scene);
-		gs_set_linear_srgb(previous);
-		SceneEditor::DrawSelection(obs_scene_from_source(scene), selected, screenScale, w, h);
+
+		/* Contour discret de la destination sur laquelle on travaille. */
+		if (isActive && canEdit)
+			DrawOutline(1.5f * px, 1.5f * px, float(w) - 3.0f * px, float(h) - 3.0f * px, 1.5f * px,
+				    ACTIVE_FRAME_COLOR);
+
+		/* Sélection et guides seulement sur la tuile active. */
+		if (scene && isActive && canEdit)
+			SceneEditor::DrawSelection(obs_scene_from_source(scene), selected, screenScale, w, h);
 	});
 }
 
@@ -238,12 +270,18 @@ bool TileWidget::ToCanvas(const QPointF &pos, float &x, float &y, float &screenS
 	return true;
 }
 
+bool TileWidget::CanvasPointAt(const QPoint &tilePos, float &x, float &y) const
+{
+	float s;
+	return ToCanvas(QPointF(display->mapFrom(this, tilePos)), x, y, s);
+}
+
 OBSSceneItem TileWidget::SelectedSceneItem() const
 {
 	const int64_t id = selectedId.load();
 	if (id < 0)
 		return nullptr;
-	OBSSource scene = LinkedScene();
+	OBSSource scene = EditScene();
 	obs_scene_t *s = scene ? obs_scene_from_source(scene) : nullptr;
 	if (!s)
 		return nullptr;
@@ -252,14 +290,14 @@ OBSSceneItem TileWidget::SelectedSceneItem() const
 
 void TileWidget::MousePress(QMouseEvent *event)
 {
-	emit activated(this);
-	if (program)
+	if (!editable.load())
 		return;
+	emit activated(this);
 
 	float x, y, s;
 	if (!ToCanvas(event->position(), x, y, s))
 		return;
-	OBSSource scene = LinkedScene();
+	OBSSource scene = EditScene();
 	obs_scene_t *sc = scene ? obs_scene_from_source(scene) : nullptr;
 	if (!sc)
 		return;
@@ -268,11 +306,9 @@ void TileWidget::MousePress(QMouseEvent *event)
 
 	if (event->button() == Qt::RightButton) {
 		const int64_t id = SceneEditor::HitTest(sc, x, y);
-		if (id >= 0) {
-			SetSelectedItem(id);
-			emit selectionChanged(this, id);
-			emit contextMenuRequested(this, event->globalPosition().toPoint());
-		}
+		SetSelectedItem(id);
+		emit selectionChanged(this, id);
+		emit contextMenuRequested(this, event->globalPosition().toPoint());
 		return;
 	}
 	if (event->button() != Qt::LeftButton)
@@ -280,6 +316,7 @@ void TileWidget::MousePress(QMouseEvent *event)
 
 	startX = x;
 	startY = y;
+	dragMoved = false;
 	const float tol = HANDLE_TOLERANCE_PX / s;
 
 	/* Poignées de la source déjà sélectionnée. */
@@ -310,18 +347,9 @@ void TileWidget::MousePress(QMouseEvent *event)
 		drag = Drag::Move;
 }
 
-static float Snap(float value, float target, float tol, bool &snapped)
-{
-	if (!snapped && std::fabs(value - target) <= tol) {
-		snapped = true;
-		return target - value;
-	}
-	return 0.0f;
-}
-
 void TileWidget::MouseMove(QMouseEvent *event)
 {
-	if (program)
+	if (!editable.load())
 		return;
 
 	float x, y, s;
@@ -334,7 +362,7 @@ void TileWidget::MouseMove(QMouseEvent *event)
 		/* Curseur selon la poignée survolée. */
 		Box box;
 		int edges = 0;
-		if (item && SceneEditor::GetBox(item, box) && !SceneEditor::IsRotated(item))
+		if (active.load() && item && SceneEditor::GetBox(item, box) && !SceneEditor::IsRotated(item))
 			edges = SceneEditor::HandleAt(box, x, y, HANDLE_TOLERANCE_PX / s);
 		const bool lr = edges & (SceneEditor::EDGE_LEFT | SceneEditor::EDGE_RIGHT);
 		const bool tb = edges & (SceneEditor::EDGE_TOP | SceneEditor::EDGE_BOTTOM);
@@ -358,26 +386,32 @@ void TileWidget::MouseMove(QMouseEvent *event)
 
 	const float dx = x - startX;
 	const float dy = y - startY;
+	if (!dragMoved) {
+		if (std::fabs(dx) * s < 1.0f && std::fabs(dy) * s < 1.0f)
+			return;
+		/* Première modification réelle : on mémorise l'état pour Ctrl+Z. */
+		OBSSource scene = EditScene();
+		Undo::PushSceneState(obs_scene_from_source(scene));
+		dragMoved = true;
+	}
+
 	const float cw = float(dest->Width());
 	const float ch = float(dest->Height());
 	const bool noSnap = event->modifiers() & Qt::ControlModifier;
 	const float tol = SNAP_PX / s;
 
 	if (drag == Drag::Move) {
+		/* Pas de limite aux bords ; seul le centre est aimanté. */
 		Box b = startBox;
 		b.x += dx;
 		b.y += dy;
 		if (!noSnap) {
-			bool sx = false;
-			bool sy = false;
-			float ox = Snap(b.x, 0.0f, tol, sx);
-			ox += Snap(b.x + b.w, cw, tol, sx);
-			ox += Snap(b.x + b.w * 0.5f, cw * 0.5f, tol, sx);
-			float oy = Snap(b.y, 0.0f, tol, sy);
-			oy += Snap(b.y + b.h, ch, tol, sy);
-			oy += Snap(b.y + b.h * 0.5f, ch * 0.5f, tol, sy);
-			b.x += ox;
-			b.y += oy;
+			const float offX = cw * 0.5f - (b.x + b.w * 0.5f);
+			const float offY = ch * 0.5f - (b.y + b.h * 0.5f);
+			if (std::fabs(offX) <= tol)
+				b.x += offX;
+			if (std::fabs(offY) <= tol)
+				b.y += offY;
 		}
 		SceneEditor::SetBox(item, b);
 		return;
@@ -385,48 +419,55 @@ void TileWidget::MouseMove(QMouseEvent *event)
 
 	if (drag == Drag::Resize) {
 		const Box &b = startBox;
-		float x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
-		if (dragEdges & SceneEditor::EDGE_LEFT)
-			x0 += dx;
-		if (dragEdges & SceneEditor::EDGE_RIGHT)
-			x1 += dx;
-		if (dragEdges & SceneEditor::EDGE_TOP)
-			y0 += dy;
-		if (dragEdges & SceneEditor::EDGE_BOTTOM)
-			y1 += dy;
-
-		if (!noSnap) {
-			bool sx = false;
-			bool sy = false;
-			if (dragEdges & SceneEditor::EDGE_LEFT)
-				x0 += Snap(x0, 0.0f, tol, sx);
-			if (dragEdges & SceneEditor::EDGE_RIGHT)
-				x1 += Snap(x1, cw, tol, sx);
-			if (dragEdges & SceneEditor::EDGE_TOP)
-				y0 += Snap(y0, 0.0f, tol, sy);
-			if (dragEdges & SceneEditor::EDGE_BOTTOM)
-				y1 += Snap(y1, ch, tol, sy);
-		}
-
-		float w = std::fmax(x1 - x0, 4.0f);
-		float h = std::fmax(y1 - y0, 4.0f);
-
-		const bool corner = (dragEdges & (SceneEditor::EDGE_LEFT | SceneEditor::EDGE_RIGHT)) &&
-				    (dragEdges & (SceneEditor::EDGE_TOP | SceneEditor::EDGE_BOTTOM));
+		const bool horiz = dragEdges & (SceneEditor::EDGE_LEFT | SceneEditor::EDGE_RIGHT);
+		const bool vert = dragEdges & (SceneEditor::EDGE_TOP | SceneEditor::EDGE_BOTTOM);
 		const bool freeRatio = event->modifiers() & Qt::ShiftModifier;
-		if (corner && !freeRatio && b.w > 0.0f && b.h > 0.0f) {
-			const float ratio = b.w / b.h;
-			if (w / b.w > h / b.h)
+		const float ratio = b.h > 0.0f ? b.w / b.h : 1.0f;
+
+		float w = b.w;
+		float h = b.h;
+		if (dragEdges & SceneEditor::EDGE_LEFT)
+			w = b.w - dx;
+		if (dragEdges & SceneEditor::EDGE_RIGHT)
+			w = b.w + dx;
+		if (dragEdges & SceneEditor::EDGE_TOP)
+			h = b.h - dy;
+		if (dragEdges & SceneEditor::EDGE_BOTTOM)
+			h = b.h + dy;
+		w = std::fmax(w, 4.0f);
+		h = std::fmax(h, 4.0f);
+
+		/* Proportions gardées sur toutes les poignées, sauf avec Maj. */
+		if (!freeRatio) {
+			if (horiz && vert) {
+				if (w / b.w > h / b.h)
+					h = w / ratio;
+				else
+					w = h * ratio;
+			} else if (horiz) {
 				h = w / ratio;
-			else
+			} else if (vert) {
 				w = h * ratio;
+			}
 		}
 
 		Box nb;
 		nb.w = w;
 		nb.h = h;
-		nb.x = (dragEdges & SceneEditor::EDGE_LEFT) ? (b.x + b.w - w) : b.x;
-		nb.y = (dragEdges & SceneEditor::EDGE_TOP) ? (b.y + b.h - h) : b.y;
+		/* Le bord opposé reste fixe ; sur une poignée de côté, l'autre
+		 * axe reste centré. */
+		if (dragEdges & SceneEditor::EDGE_LEFT)
+			nb.x = b.x + b.w - w;
+		else if (dragEdges & SceneEditor::EDGE_RIGHT)
+			nb.x = b.x;
+		else
+			nb.x = b.x + (b.w - w) * 0.5f;
+		if (dragEdges & SceneEditor::EDGE_TOP)
+			nb.y = b.y + b.h - h;
+		else if (dragEdges & SceneEditor::EDGE_BOTTOM)
+			nb.y = b.y;
+		else
+			nb.y = b.y + (b.h - h) * 0.5f;
 		SceneEditor::SetBox(item, nb);
 		return;
 	}
@@ -476,14 +517,15 @@ void TileWidget::MouseRelease(QMouseEvent *event)
 	(void)event;
 	if (drag != Drag::None) {
 		drag = Drag::None;
-		emit itemsChanged(this);
+		if (dragMoved)
+			emit itemsChanged(this);
 	}
 }
 
 void TileWidget::MouseDoubleClick(QMouseEvent *event)
 {
 	(void)event;
-	if (program)
+	if (!editable.load())
 		return;
 	OBSSceneItem item = SelectedSceneItem();
 	if (item)
@@ -492,7 +534,7 @@ void TileWidget::MouseDoubleClick(QMouseEvent *event)
 
 bool TileWidget::KeyPress(QKeyEvent *event)
 {
-	if (program)
+	if (!editable.load())
 		return false;
 	OBSSceneItem item = SelectedSceneItem();
 	if (!item)
@@ -518,6 +560,10 @@ bool TileWidget::KeyPress(QKeyEvent *event)
 		return false;
 	}
 
+	if (!event->isAutoRepeat()) {
+		OBSSource scene = EditScene();
+		Undo::PushSceneState(obs_scene_from_source(scene));
+	}
 	struct vec2 pos;
 	obs_sceneitem_get_pos(item, &pos);
 	pos.x += dx;
@@ -527,7 +573,7 @@ bool TileWidget::KeyPress(QKeyEvent *event)
 }
 
 /* ------------------------------------------------------------------ */
-/* Grille                                                               */
+/* Colonne                                                              */
 /* ------------------------------------------------------------------ */
 
 TileGrid::TileGrid(bool program_, QWidget *parent) : QWidget(parent), program(program_)
@@ -545,22 +591,51 @@ void TileGrid::Clear()
 	emptyLabel->setVisible(true);
 }
 
-void TileGrid::SetDestinations(const std::vector<Destination *> &dests)
+std::vector<TileWidget *> TileGrid::SetDestinations(const std::vector<Destination *> &dests)
 {
-	Clear();
+	std::vector<TileWidget *> next;
+	std::vector<TileWidget *> created;
+
+	/* Réutiliser les tuiles des destinations toujours affichées : leur
+	 * affichage OBS n'est pas recréé, donc pas de clignotement. */
 	for (auto *d : dests) {
-		auto *tile = new TileWidget(d, program, this);
-		tile->show();
-		tiles.push_back(tile);
+		TileWidget *tile = nullptr;
+		for (auto *&t : tiles) {
+			if (t && t->Dest() == d) {
+				tile = t;
+				t = nullptr;
+				break;
+			}
+		}
+		if (!tile) {
+			tile = new TileWidget(d, program, this);
+			tile->show();
+			created.push_back(tile);
+		}
+		next.push_back(tile);
 	}
+	for (auto *t : tiles)
+		delete t;
+	tiles = next;
+
 	emptyLabel->setVisible(tiles.empty());
 	Relayout();
+	return created;
 }
 
 TileWidget *TileGrid::TileFor(Destination *dest) const
 {
 	for (auto *t : tiles) {
 		if (t->Dest() == dest)
+			return t;
+	}
+	return nullptr;
+}
+
+TileWidget *TileGrid::TileAt(const QPoint &globalPos) const
+{
+	for (auto *t : tiles) {
+		if (t->rect().contains(t->mapFromGlobal(globalPos)))
 			return t;
 	}
 	return nullptr;

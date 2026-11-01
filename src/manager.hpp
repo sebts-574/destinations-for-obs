@@ -38,9 +38,13 @@ public:
 	/* Destination par défaut en premier. */
 	std::vector<Destination *> Destinations() const;
 	Destination *Main() const { return destinations.empty() ? nullptr : destinations.front().get(); }
-	/* Nouvelle destination, ajoutée à toutes les scènes existantes (on la
-	 * retire ensuite des scènes où elle n'a rien à faire). */
-	Destination *Add(const std::string &name, uint32_t width, uint32_t height);
+	/* Destinations utilisables (sans la destination par défaut si elle est
+	 * désactivée). */
+	std::vector<Destination *> ActiveDestinations() const;
+	/* Nouvelle destination ; addToExisting : l'ajouter aussi à toutes les
+	 * scènes déjà créées. */
+	Destination *Add(const std::string &name, uint32_t width, uint32_t height, bool addToExisting);
+	void SetMainDisabled(bool disabled);
 	void Remove(Destination *dest);
 	void NotifyDestinationsChanged() { emit destinationsChanged(); }
 

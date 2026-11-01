@@ -33,8 +33,10 @@ class EditDisplay;
 class QLabel;
 class QPushButton;
 
-/* Une destination dans la grille Preview ou Program de la vue Studio.
- * En Preview, permet d'éditer les sources à la souris. */
+/* Une destination dans la colonne Aperçu ou Programme.
+ * Aperçu : on édite la scène de la destination.
+ * Programme : on peut éditer ce qui est à l'antenne si « Modifier le
+ * programme » est activé. */
 class TileWidget : public QWidget {
 	Q_OBJECT
 
@@ -45,13 +47,18 @@ public:
 	Destination *Dest() const { return dest; }
 	bool IsProgram() const { return program; }
 
-	/* Scène liée de cette destination pour le Preview courant (vide si la
-	 * scène ne couvre pas la destination). */
+	/* Aperçu : scène de cette destination pour la scène sélectionnée. */
 	void SetLinkedScene(obs_source_t *scene);
 	OBSSource LinkedScene() const;
+	/* Scène qu'on édite : la scène liée (Aperçu) ou la copie à l'antenne
+	 * (Programme). */
+	OBSSource EditScene() const;
 
+	void SetEditable(bool value);
+	bool Editable() const { return editable.load(); }
 	void SetActive(bool active);
-	void SetTally(bool onAir);
+	bool Active() const { return active.load(); }
+	void SetFocused(bool focused);
 	void SetSelectedItem(int64_t id);
 	int64_t SelectedItem() const { return selectedId.load(); }
 	void RefreshHeader();
@@ -63,11 +70,15 @@ public:
 	void MouseDoubleClick(QMouseEvent *event);
 	bool KeyPress(QKeyEvent *event);
 
+	/* Point du canvas sous une position de la tuile (pour le glisser-déposer). */
+	bool CanvasPointAt(const QPoint &tilePos, float &x, float &y) const;
+
 signals:
 	void activated(TileWidget *tile);
 	void selectionChanged(TileWidget *tile, qint64 itemId);
 	void itemsChanged(TileWidget *tile);
 	void lockChanged(TileWidget *tile);
+	void focusRequested(TileWidget *tile);
 	void contextMenuRequested(TileWidget *tile, const QPoint &globalPos);
 
 private:
@@ -77,21 +88,24 @@ private:
 
 	Destination *dest;
 	bool program;
-	bool active = false;
-	bool onAir = false;
+	bool focused = false;
 
 	QWidget *header = nullptr;
 	QLabel *headerLabel = nullptr;
 	QPushButton *lockButton = nullptr;
+	QPushButton *focusButton = nullptr;
 	EditDisplay *display = nullptr;
 
 	mutable std::mutex mutex;
 	OBSWeakSource linkedScene;
 	std::atomic<int64_t> selectedId{-1};
+	std::atomic<bool> editable{false};
+	std::atomic<bool> active{false};
 
 	/* Glisser-déposer en cours. */
 	enum class Drag { None, Move, Resize, Crop };
 	Drag drag = Drag::None;
+	bool dragMoved = false;
 	int dragEdges = 0;
 	float startX = 0.0f;
 	float startY = 0.0f;
@@ -101,17 +115,20 @@ private:
 	float startScaleY = 1.0f;
 };
 
-/* Colonne de tuiles (une par destination couverte par la scène), empilées
- * verticalement et mises à l'échelle pour tenir dans la zone. */
+/* Colonne de tuiles (une par destination affichée), empilées verticalement
+ * et mises à l'échelle pour tenir dans la zone. Les tuiles existantes sont
+ * réutilisées pour éviter les clignotements. */
 class TileGrid : public QWidget {
 	Q_OBJECT
 
 public:
 	TileGrid(bool program, QWidget *parent);
 
-	void SetDestinations(const std::vector<Destination *> &dests);
+	/* Renvoie les tuiles nouvellement créées (à connecter). */
+	std::vector<TileWidget *> SetDestinations(const std::vector<Destination *> &dests);
 	const std::vector<TileWidget *> &Tiles() const { return tiles; }
 	TileWidget *TileFor(Destination *dest) const;
+	TileWidget *TileAt(const QPoint &globalPos) const;
 	void Clear();
 
 protected:

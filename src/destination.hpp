@@ -68,6 +68,11 @@ public:
 	uint32_t Width() const;
 	uint32_t Height() const;
 
+	/* Destination par défaut « désactivée et masquée » : elle n'apparaît
+	 * plus nulle part, mais ses scènes sont mémorisées. */
+	bool Disabled() const { return disabled; }
+	void SetDisabled(bool value) { disabled = value; }
+
 	/* Verrouillée : ignorée par le TAKE global (reste sur son Program). */
 	bool Locked() const { return locked; }
 	void SetLocked(bool value) { locked = value; }
@@ -89,6 +94,9 @@ public:
 	 * par défaut utilise directement celle d'OBS. */
 	void Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ, int durationMs);
 	std::string ProgramSceneName() const;
+	/* Ce qui est réellement à l'antenne : une copie privée de la scène,
+	 * faite au moment de la transition. Vide si rien n'est à l'antenne. */
+	OBSSource LiveScene() const;
 
 	/* --- Écran de sortie physique (nom QScreen, vide = aucun) --- */
 	const std::string &OutputScreen() const { return outputScreen; }
@@ -111,6 +119,7 @@ private:
 	bool isMain = false;
 	std::string name;
 	bool locked = false;
+	bool disabled = false;
 
 	obs_canvas_t *canvas = nullptr;
 	uint32_t width = 1920;
@@ -120,6 +129,7 @@ private:
 	 * libobs en tenant ce verrou. */
 	mutable std::mutex mutex;
 	OBSWeakSource programScene;
+	OBSSource liveCopy;
 	OBSSource transition;
 	std::string transitionSignature; /* id + réglages de la transition copiée */
 	std::string outputScreen;

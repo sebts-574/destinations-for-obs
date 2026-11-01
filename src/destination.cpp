@@ -168,6 +168,7 @@ void Destination::Detach()
 		old = canvas;
 		canvas = nullptr;
 		programScene = nullptr;
+		liveCopy = nullptr;
 	}
 	if (old) {
 		obs_canvas_set_channel(old, 0, nullptr);
@@ -253,6 +254,8 @@ bool Destination::Covers(obs_source_t *mainScene) const
 	if (!mainScene)
 		return false;
 	if (isMain) {
+		if (disabled)
+			return false;
 		OBSDataAutoRelease priv = obs_source_get_private_settings(mainScene);
 		return !obs_data_get_bool(priv, EXCLUDE_MAIN_KEY);
 	}
@@ -408,9 +411,6 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 	if (isMain) {
 		/* La destination par défaut passe par OBS : sa transition, son
 		 * Program, son stream et son enregistrement. */
-		OBSSourceAutoRelease onAir = obs_frontend_get_current_scene();
-		if (onAir.Get() == linkedScene)
-			return;
 		OBSSourceAutoRelease current = obs_frontend_get_current_transition();
 		OBSSource cutTransition = cut ? FindFrontendTransition("cut_transition") : OBSSource();
 		if (cut && cutTransition && current && current.Get() != cutTransition.Get()) {
@@ -423,27 +423,32 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 		return;
 	}
 
-	{
-		/* Déjà à l'antenne : rien à faire. */
-		std::lock_guard<std::mutex> lock(mutex);
-		if (obs_weak_source_references_source(programScene, linkedScene))
-			return;
-	}
-
 	CreateTransitionFrom(templ);
 	if (!transition)
 		return;
 
+	/* Copie privée (mêmes sources, même placement) : c'est elle qui passe
+	 * à l'antenne, pour que les retouches faites en Aperçu n'y arrivent
+	 * pas. Comme le mode Studio d'OBS avec « Dupliquer la scène ». */
+	const char *sceneName = obs_source_get_name(linkedScene);
+	obs_scene_t *dup = obs_scene_duplicate(obs_scene_from_source(linkedScene), sceneName ? sceneName : "",
+					       OBS_SCENE_DUP_PRIVATE_REFS);
+	if (!dup)
+		return;
+	OBSSource copy = obs_scene_get_source(dup);
+	obs_scene_release(dup);
+
 	const bool immediate = cut || obs_transition_fixed(transition) || durationMs <= 0;
 	if (immediate) {
 		obs_transition_force_stop(transition);
-		obs_transition_set(transition, linkedScene);
-	} else if (!obs_transition_start(transition, OBS_TRANSITION_MODE_AUTO, uint32_t(durationMs), linkedScene)) {
+		obs_transition_set(transition, copy);
+	} else if (!obs_transition_start(transition, OBS_TRANSITION_MODE_AUTO, uint32_t(durationMs), copy)) {
 		return; /* une transition est déjà en cours */
 	}
 
 	std::lock_guard<std::mutex> lock(mutex);
 	programScene = OBSGetWeakRef(linkedScene);
+	liveCopy = copy;
 }
 
 std::string Destination::ProgramSceneName() const
@@ -457,6 +462,21 @@ std::string Destination::ProgramSceneName() const
 	OBSSource s = OBSGetStrongRef(programScene);
 	const char *n = s ? obs_source_get_name(s) : nullptr;
 	return n ? n : "";
+}
+
+OBSSource Destination::LiveScene() const
+{
+	if (isMain) {
+		/* OBS en mode Studio duplique lui-même la scène à l'antenne : on
+		 * prend ce qu'affiche réellement sa transition. */
+		OBSSourceAutoRelease tr = obs_get_output_source(0);
+		if (!tr || obs_source_get_type(tr) != OBS_SOURCE_TYPE_TRANSITION)
+			return nullptr;
+		OBSSourceAutoRelease active = obs_transition_get_active_source(tr);
+		return OBSSource(active.Get());
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	return liveCopy;
 }
 
 /* ------------------------------------------------------------------ */
@@ -553,6 +573,7 @@ void Destination::Save(obs_data_t *data) const
 	obs_data_set_bool(data, "main", isMain);
 	obs_data_set_bool(data, "locked", locked);
 	obs_data_set_string(data, "output_screen", outputScreen.c_str());
+	obs_data_set_bool(data, "disabled", disabled);
 	if (isMain)
 		return;
 
@@ -573,6 +594,7 @@ void Destination::Load(obs_data_t *data)
 {
 	locked = obs_data_get_bool(data, "locked");
 	outputScreen = obs_data_get_string(data, "output_screen");
+	disabled = isMain && obs_data_get_bool(data, "disabled");
 	if (isMain)
 		return;
 
@@ -586,8 +608,14 @@ void Destination::Load(obs_data_t *data)
 
 	OBSSource program = FindLinked(obs_data_get_string(data, "program_link"));
 	if (program && transition) {
-		obs_transition_set(transition, program);
+		const char *n = obs_source_get_name(program);
+		obs_scene_t *dup =
+			obs_scene_duplicate(obs_scene_from_source(program), n ? n : "", OBS_SCENE_DUP_PRIVATE_REFS);
+		OBSSource copy = dup ? OBSSource(obs_scene_get_source(dup)) : OBSSource(program.Get());
+		obs_scene_release(dup);
+		obs_transition_set(transition, copy);
 		std::lock_guard<std::mutex> lock(mutex);
 		programScene = OBSGetWeakRef(program.Get());
+		liveCopy = copy;
 	}
 }

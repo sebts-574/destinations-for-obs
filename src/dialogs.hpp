@@ -38,7 +38,8 @@ struct DestinationSettings {
 	std::string name;
 	uint32_t width = 1920;
 	uint32_t height = 1080;
-	std::string outputScreen; /* nom de l'écran, vide = aucun */
+	std::string outputScreen;   /* nom de l'écran, vide = aucun */
+	bool addToExisting = false; /* création uniquement */
 };
 
 /* Nouvelle destination (dest == nullptr) ou paramètres d'une destination. */

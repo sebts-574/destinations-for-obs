@@ -17,12 +17,17 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "audio-mixer.hpp"
+#include "destination.hpp"
+#include "manager.hpp"
 #include "text.hpp"
 
 #include <obs-frontend-api.h>
 
 #include <QGridLayout>
+#include <QDialog>
 #include <QLabel>
+#include <QMenu>
+#include <QPushButton>
 #include <QProgressBar>
 #include <QScrollArea>
 #include <QSlider>
@@ -32,6 +37,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <set>
 
 static constexpr float METER_MIN_DB = -60.0f;
 
@@ -50,13 +57,13 @@ AudioStrip::AudioStrip(obs_source_t *src, QWidget *parent) : QWidget(parent), so
 	dbLabel = new QLabel(this);
 	dbLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 	grid->addWidget(nameLabel, 0, 0, 1, 2);
-	grid->addWidget(dbLabel, 0, 2);
+	grid->addWidget(dbLabel, 0, 2, 1, 2);
 
 	meter = new QProgressBar(this);
 	meter->setRange(0, 1000);
 	meter->setTextVisible(false);
 	meter->setFixedHeight(6);
-	grid->addWidget(meter, 1, 0, 1, 3);
+	grid->addWidget(meter, 1, 0, 1, 4);
 
 	slider = new QSlider(Qt::Horizontal, this);
 	slider->setRange(0, 1000);
@@ -66,6 +73,32 @@ AudioStrip::AudioStrip(obs_source_t *src, QWidget *parent) : QWidget(parent), so
 	muteButton->setCheckable(true);
 	muteButton->setToolTip(Tr("MDS.Mute"));
 	grid->addWidget(muteButton, 2, 2);
+
+	/* Écoute (monitoring) : comme « Propriétés audio avancées » d'OBS. */
+	monitorButton = new QToolButton(this);
+	monitorButton->setText("🎧");
+	monitorButton->setToolTip(Tr("MDS.Monitoring"));
+	monitorButton->setPopupMode(QToolButton::InstantPopup);
+	auto *monitorMenu = new QMenu(monitorButton);
+	const std::pair<obs_monitoring_type, const char *> types[] = {
+		{OBS_MONITORING_TYPE_NONE, "MDS.MonitorOff"},
+		{OBS_MONITORING_TYPE_MONITOR_ONLY, "MDS.MonitorOnly"},
+		{OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT, "MDS.MonitorAndOutput"},
+	};
+	for (const auto &[type, key] : types) {
+		QAction *a = monitorMenu->addAction(Tr(key));
+		a->setCheckable(true);
+		a->setData(int(type));
+		const obs_monitoring_type t = type;
+		connect(a, &QAction::triggered, this, [this, t]() { obs_source_set_monitoring_type(source, t); });
+	}
+	connect(monitorMenu, &QMenu::aboutToShow, this, [this, monitorMenu]() {
+		const int current = int(obs_source_get_monitoring_type(source));
+		for (QAction *a : monitorMenu->actions())
+			a->setChecked(a->data().toInt() == current);
+	});
+	monitorButton->setMenu(monitorMenu);
+	grid->addWidget(monitorButton, 2, 3);
 	grid->setColumnStretch(0, 1);
 
 	fader = obs_fader_create(OBS_FADER_LOG);
@@ -126,6 +159,9 @@ void AudioStrip::Poll()
 	const float db = obs_fader_get_db(fader);
 	dbLabel->setText(std::isfinite(db) ? QString("%1 dB").arg(double(db), 0, 'f', 1) : QString("-inf dB"));
 
+	const obs_monitoring_type monitoring = obs_source_get_monitoring_type(source);
+	monitorButton->setText(monitoring == OBS_MONITORING_TYPE_NONE ? "🎧" : "🎧•");
+
 	const bool muted = obs_source_muted(source);
 	if (muteButton->isChecked() != muted)
 		muteButton->setChecked(muted);
@@ -146,7 +182,7 @@ void AudioStrip::Poll()
 /* Mixeur                                                               */
 /* ------------------------------------------------------------------ */
 
-AudioMixer::AudioMixer(QWidget *parent) : QWidget(parent)
+AudioMixer::AudioMixer(QWidget *parent, bool showAll_) : QWidget(parent), showAll(showAll_)
 {
 	auto *outer = new QVBoxLayout(this);
 	outer->setContentsMargins(0, 0, 0, 0);
@@ -159,7 +195,22 @@ AudioMixer::AudioMixer(QWidget *parent) : QWidget(parent)
 	stripsLayout->setContentsMargins(4, 4, 4, 4);
 	stripsLayout->addStretch(1);
 	scroll->setWidget(content);
-	outer->addWidget(scroll);
+	outer->addWidget(scroll, 1);
+
+	if (!showAll) {
+		auto *all = new QPushButton(Tr("MDS.ViewAll"), this);
+		connect(all, &QPushButton::clicked, this, [this]() {
+			QDialog dialog(this);
+			dialog.setWindowTitle(Tr("MDS.AllAudioSources"));
+			dialog.resize(460, 520);
+			auto *l = new QVBoxLayout(&dialog);
+			auto *mixer = new AudioMixer(&dialog, true);
+			l->addWidget(mixer);
+			mixer->Refresh();
+			dialog.exec();
+		});
+		outer->addWidget(all);
+	}
 
 	auto *timer = new QTimer(this);
 	connect(timer, &QTimer::timeout, this, [this]() {
@@ -179,18 +230,79 @@ AudioMixer::AudioMixer(QWidget *parent) : QWidget(parent)
 	listTimer->start(1000);
 }
 
+static bool HasAudio(obs_source_t *source)
+{
+	return obs_source_get_type(source) == OBS_SOURCE_TYPE_INPUT &&
+	       (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO);
+}
+
+/* Sources d'une scène, scènes imbriquées comprises. */
+static void CollectSceneSources(obs_scene_t *scene, std::vector<OBSSource> &out, int depth)
+{
+	if (!scene || depth > 4)
+		return;
+	struct Ctx {
+		std::vector<OBSSource> *out;
+		int depth;
+	} ctx{&out, depth};
+	obs_scene_enum_items(
+		scene,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			auto *c = static_cast<Ctx *>(param);
+			obs_source_t *src = obs_sceneitem_get_source(item);
+			if (obs_source_is_scene(src) || obs_source_is_group(src))
+				CollectSceneSources(obs_scene_from_source(src) ? obs_scene_from_source(src)
+									       : obs_group_from_source(src),
+						    *c->out, c->depth + 1);
+			else
+				c->out->emplace_back(src);
+			return true;
+		},
+		&ctx);
+}
+
 std::vector<std::string> AudioMixer::CurrentSourceIds() const
 {
 	std::vector<std::string> ids;
+	std::set<std::string> seen;
+	auto add = [&](obs_source_t *src) {
+		if (!src || !HasAudio(src))
+			return;
+		const std::string uuid = obs_source_get_uuid(src);
+		if (seen.insert(uuid).second)
+			ids.push_back(uuid);
+	};
+
+	std::vector<OBSSource> all;
 	obs_enum_sources(
 		[](void *param, obs_source_t *source) {
-			auto *list = static_cast<std::vector<std::string> *>(param);
-			if (obs_source_get_type(source) == OBS_SOURCE_TYPE_INPUT &&
-			    (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO))
-				list->emplace_back(obs_source_get_uuid(source));
+			static_cast<std::vector<OBSSource> *>(param)->emplace_back(source);
 			return true;
 		},
-		&ids);
+		&all);
+
+	if (showAll) {
+		for (auto &s : all)
+			add(s);
+		return ids;
+	}
+
+	/* D'abord les sources actives (à l'antenne quelque part). */
+	for (auto &s : all) {
+		if (obs_source_active(s))
+			add(s);
+	}
+	/* Puis celles de la scène sélectionnée, sur toutes les destinations. */
+	OBSSource preview = Manager::Get().PreviewScene();
+	if (preview) {
+		for (auto *d : Manager::Get().ActiveDestinations()) {
+			OBSSource linked = d->LinkedScene(preview);
+			std::vector<OBSSource> inScene;
+			CollectSceneSources(linked ? obs_scene_from_source(linked) : nullptr, inScene, 0);
+			for (auto &s : inScene)
+				add(s);
+		}
+	}
 	return ids;
 }
 
