@@ -296,7 +296,7 @@ public:
 	{
 		setCheckable(true);
 		setCursor(Qt::PointingHandCursor);
-		setFixedSize(52, 28);
+		setFixedSize(56, 30);
 	}
 
 protected:
@@ -306,12 +306,14 @@ protected:
 		p.setRenderHint(QPainter::Antialiasing, true);
 		const QRectF track = QRectF(rect()).adjusted(1, 1, -1, -1);
 		p.setPen(Qt::NoPen);
-		p.setBrush(isChecked() ? QColor(0x3D, 0x8B, 0xF5) : QColor(0x5A, 0x5D, 0x66));
+		/* Comme la maquette : bleu profond activé, gris désactivé. */
+		p.setBrush(isChecked() ? QColor(0x2B, 0x3F, 0xD6) : QColor(0x4A, 0x4D, 0x57));
 		p.drawRoundedRect(track, track.height() / 2, track.height() / 2);
-		const qreal d = track.height() - 6;
-		const qreal x = isChecked() ? track.right() - 3 - d : track.left() + 3;
-		p.setBrush(Qt::white);
-		p.drawEllipse(QRectF(x, track.top() + 3, d, d));
+		const qreal m = 4;
+		const qreal d = track.height() - 2 * m;
+		const qreal x = isChecked() ? track.right() - m - d : track.left() + m;
+		p.setBrush(isChecked() ? QColor(Qt::white) : QColor(0xC8, 0xCA, 0xD0));
+		p.drawEllipse(QRectF(x, track.top() + m, d, d));
 	}
 };
 
