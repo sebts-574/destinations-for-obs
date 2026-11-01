@@ -19,6 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "blend-editor.hpp"
 #include "destination.hpp"
 #include "dialogs.hpp"
+#include "manager.hpp"
 #include "text.hpp"
 
 #include <QCheckBox>
@@ -749,6 +750,9 @@ void BlendEditor::BuildUi()
 	if (!dest) {
 		addToExisting = new QCheckBox(Tr("MDS.AddToExistingScenes"), this);
 		addToExisting->setToolTip(Tr("MDS.AddToExistingScenesTip"));
+		if (Manager::Get().ShowAllDestinations())
+			addToExisting->setToolTip(Tr("MDS.AddToExistingScenesTip") + "\n\n" +
+						  Tr("MDS.AddToExistingShowAllNote"));
 		bottom->addWidget(addToExisting);
 	}
 	bottom->addStretch(1);

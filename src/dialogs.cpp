@@ -203,6 +203,15 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 		addToExisting->setChecked(settings.addToExisting);
 		addToExisting->setToolTip(Tr("MDS.AddToExistingScenesTip"));
 		form->addRow(addToExisting);
+		/* Avec « Toutes les destinations, en permanence », la nouvelle
+		 * destination est visible sous chaque scène même si elle n'y est
+		 * pas : on le précise pour éviter la confusion. */
+		if (Manager::Get().ShowAllDestinations()) {
+			auto *note = new QLabel(Tr("MDS.AddToExistingShowAllNote"), &dialog);
+			note->setWordWrap(true);
+			note->setStyleSheet("QLabel { color: #8ab4f8; font-style: italic; }");
+			form->addRow(note);
+		}
 	}
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
