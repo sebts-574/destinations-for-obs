@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.0 - User Guide (PDF).
+"""Multidestination Studio 1.0.3 - User Guide (PDF).
 
 Screenshots: put PNG files named shotNN.png in the folder given as argv[2];
 missing ones are drawn as labelled placeholders.
@@ -213,7 +213,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.0 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.0.3 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -242,7 +242,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.0")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.0.3")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -252,7 +252,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.0 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.0.3 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -356,7 +356,8 @@ def build():
         ["File", "Exit Multidestination Studio."],
         ["Edit", "Undo, copy and paste, remove, transform, order, properties and filters for the selected "
                  "source (see chapter 7)."],
-        ["Destinations", "One submenu per destination, Output blending, New destination (chapters 5 and 9)."],
+        ["Destinations", "One submenu per destination, Manage destinations, Output blending, New destination "
+                         "(chapters 5 and 9)."],
         ["Docks", "Show or hide each dock, Reset docks, Fullscreen (F11)."],
         ["Configuration Settings", "After a transition, Destinations shown, Startup Settings, Language "
                                    "(chapter 11)."],
@@ -405,7 +406,10 @@ def build():
         "have. Leave it unticked to add it to scenes one by one.",
         "Click <b>Create</b>. The destination appears in Preview and Program for every scene that covers it.",
     ])
-    s += shot("The New destination dialog.", 60)
+    s += [P("When <b>All destinations, all the time</b> is on (chapter 11), a note under the checkbox reminds you "
+            "that the new destination will be visible under every scene; where it was not added, it shows "
+            "<b>Not in this scene</b> and nothing is placed on it.")]
+    s += shot("The New destination dialog, with the note shown when All destinations, all the time is on.", 60)
     s += [P("The Destinations menu", h2)]
     s += [P("Each destination has its own submenu:")]
     s += table([
@@ -421,6 +425,14 @@ def build():
     s += [P("In a projection window, <b>Esc</b> closes the projection and a double-click switches between full "
             "screen and window. The mouse pointer is hidden on output screens.")]
     s += shot("The Destinations menu with a destination submenu open.", 60)
+    s += [P("Managing all destinations", h2)]
+    s += [P("<b>Destinations → Manage destinations…</b> shows every destination in one window. Select a "
+            "destination on the left to change its name, resolution, output screen and lock, and to tick or untick "
+            "the scenes it appears in; the window shows how many scenes cover it. Click <b>Apply</b> to save the "
+            "changes; unticking a scene asks for confirmation, because the layout of that scene on this destination "
+            "is deleted. The same window gives direct access to Output blending, fullscreen projection, Delete "
+            "(Deactivate or Activate for the default destination) and New destination.")]
+    s += shot("The Manage destinations window.", 80)
     s += [P("The default destination", h2)]
     s += [P("The default destination is the OBS main canvas: its resolution is set in OBS Settings → Video, and "
             "it is what OBS streams and records. If you do not need it, choose <b>Deactivate &amp; hide</b> in its "

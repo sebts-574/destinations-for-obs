@@ -6,4 +6,4 @@
 python3 build_guide.py Multidestination-Studio-1.0-User-Guide.pdf shots
 ```
 
-Screenshots go in `shots/` as `shot01.png` … `shot15.png`; missing ones are drawn as placeholders.
+Screenshots go in `shots/` as `shot01.png` … `shot16.png`; missing ones are drawn as placeholders.
