@@ -72,17 +72,25 @@ ProjectorWindow::~ProjectorWindow()
 
 void ProjectorWindow::Start()
 {
-	if (target) {
-		setGeometry(target->geometry());
-		setWindowFlag(Qt::FramelessWindowHint, true);
-		showFullScreen();
-	} else {
-		resize(960, 540);
-		show();
-	}
-	setFocusPolicy(Qt::StrongFocus);
-	activateWindow();
-	setFocus();
+    if (target) {
+        setGeometry(target->geometry());
+        setWindowFlag(Qt::FramelessWindowHint, true);
+#ifdef Q_OS_MACOS
+        /* Pas de plein écran natif sur macOS : il crée un Space dédié
+         * qui masque les autres écrans et se cache dès qu'on clique
+         * dans OBS. Une fenêtre sans bord couvrant l'écran reste
+         * toujours visible. */
+        showNormal();
+#else
+        showFullScreen();
+#endif
+    } else {
+        resize(960, 540);
+        show();
+    }
+    setFocusPolicy(Qt::StrongFocus);
+    activateWindow();
+    setFocus();
 }
 
 void ProjectorWindow::DrawCb(void *data, uint32_t cx, uint32_t cy)
@@ -109,14 +117,26 @@ void ProjectorWindow::keyPressEvent(QKeyEvent *event)
 
 void ProjectorWindow::mouseDoubleClickEvent(QMouseEvent *event)
 {
-	/* Double-clic : bascule fenêtre <-> plein écran (utile pour régler). */
-	if (isFullScreen()) {
-		showNormal();
-		unsetCursor();
-	} else if (target) {
-		setGeometry(target->geometry());
-		showFullScreen();
-		setCursor(Qt::BlankCursor);
-	}
-	QWidget::mouseDoubleClickEvent(event);
+#ifdef Q_OS_MACOS
+    static const QRect screenGeo = target ? target->geometry() : QRect();
+    if (geometry() == screenGeo) {
+        resize(960, 540);
+        showNormal();
+        unsetCursor();
+    } else if (target) {
+        setGeometry(target->geometry());
+        showNormal();
+        setCursor(Qt::BlankCursor);
+    }
+#else
+    if (isFullScreen()) {
+        showNormal();
+        unsetCursor();
+    } else if (target) {
+        setGeometry(target->geometry());
+        showFullScreen();
+        setCursor(Qt::BlankCursor);
+    }
+#endif
+    QWidget::mouseDoubleClickEvent(event);
 }
