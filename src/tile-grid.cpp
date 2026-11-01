@@ -346,7 +346,7 @@ void TileWidget::ReleaseShared()
  * cadre rouge et texte rouge au centre, visible d'un coup d'œil. */
 static void DrawAbsent(float w, float h)
 {
-	DrawSolidRect(0.0f, 0.0f, w, h, 0xFF1A1A1A);
+	DrawSolidRect(0.0f, 0.0f, w, h, 0xFF202226);
 	const float diag = std::sqrt(w * w + h * h);
 	const float stripe = std::max(w, h) / 48.0f;
 
@@ -354,10 +354,10 @@ static void DrawAbsent(float w, float h)
 	gs_matrix_translate3f(w * 0.5f, h * 0.5f, 0.0f);
 	gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(45.0f));
 	for (float x = -diag; x < diag; x += stripe * 3.0f)
-		DrawSolidRect(x, -diag, stripe, diag * 2.0f, 0xFF2A2A2A);
+		DrawSolidRect(x, -diag, stripe, diag * 2.0f, 0xFF3A3D45);
 	gs_matrix_pop();
 
-	const float t = std::max(w, h) / 160.0f;
+	const float t = std::max(w, h) / 110.0f;
 
 	/* « Absente de cette scène » en rouge, centré, à l'échelle du cadre. */
 	OBSSource label = AbsentLabel();

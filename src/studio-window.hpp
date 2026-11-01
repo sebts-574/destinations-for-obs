@@ -134,6 +134,7 @@ private:
 	/* Destinations */
 	void FillDestinationsMenu();
 	void NewDestination();
+	void ManageDestinations();
 	void EditDestination(Destination *dest);
 	void DeleteDestination(Destination *dest);
 	void OpenProjector(Destination *dest, bool fullscreen);

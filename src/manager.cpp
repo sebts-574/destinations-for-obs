@@ -142,6 +142,8 @@ Destination *Manager::Add(const std::string &requestedName, uint32_t width, uint
 		creatingScene = false;
 	}
 
+	obs_log(LOG_INFO, "destination « %s » créée (%u×%u), %s", name.c_str(), width, height,
+		addToExisting ? "ajoutée aux scènes existantes" : "dans aucune scène existante");
 	emit destinationsChanged();
 	emit scenesChanged();
 	return raw;

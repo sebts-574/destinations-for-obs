@@ -77,6 +77,8 @@ target_sources(
     src/blend-editor.cpp
     src/blend-editor.hpp
     src/reorder-list.hpp
+    src/manage-destinations.cpp
+    src/manage-destinations.hpp
     src/projector-window.cpp
     src/projector-window.hpp
     src/qt-display.cpp

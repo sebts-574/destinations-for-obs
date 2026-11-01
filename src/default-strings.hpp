@@ -225,4 +225,11 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.SettingStartupLaunch", "Launch Multidestination Studio on startup"},
 	{"MDS.Enabled", "Enabled"},
 	{"MDS.Disabled", "Disabled"},
+	{"MDS.ManageDestinationsMenu", "Manage destinations…"},
+	{"MDS.ManageDestinations", "Manage destinations"},
+	{"MDS.LockedOption", "Locked (ignores Transition and Cut)"},
+	{"MDS.ShownInScenes", "Shown in these scenes"},
+	{"MDS.ShownInScenesCount", "Shown in %1 of %2 scenes."},
+	{"MDS.Apply", "Apply"},
+	{"MDS.ActivateDestination", "Activate"},
 };

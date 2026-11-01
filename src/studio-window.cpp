@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "media-controls.hpp"
 #include "projector-window.hpp"
 #include "reorder-list.hpp"
+#include "manage-destinations.hpp"
 #include "blend-editor.hpp"
 #include "text.hpp"
 #include "tile-grid.hpp"
@@ -162,6 +163,10 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 	connect(&m, &Manager::destinationsChanged, this, [this]() {
 		UpdateControls();
 		UpdateGrids(true);
+		for (TileGrid *grid : {pvwGrid, pgmGrid}) {
+			for (TileWidget *tile : grid->Tiles())
+				tile->RefreshHeader();
+		}
 	});
 	connect(&m, &Manager::programChanged, this, &StudioWindow::RefreshTally);
 	connect(&m, &Manager::aboutToReset, this, &StudioWindow::OnReset);
@@ -1902,6 +1907,9 @@ void StudioWindow::FillDestinationsMenu()
 	}
 
 	destinationsMenu->addSeparator();
+	connect(destinationsMenu->addAction(Tr("MDS.ManageDestinationsMenu")), &QAction::triggered, this,
+		&StudioWindow::ManageDestinations);
+	destinationsMenu->addSeparator();
 	connect(destinationsMenu->addAction(Tr("MDS.OutputBlendingMenu")), &QAction::triggered, this,
 		&StudioWindow::NewBlendedDestination);
 	destinationsMenu->addSeparator();
@@ -1965,6 +1973,30 @@ void StudioWindow::RefreshBlendProjectors(Destination *dest)
 	}
 	CloseProjectors(dest);
 	OpenProjector(dest, fullscreen);
+}
+
+void StudioWindow::ManageDestinations()
+{
+	ManageDestinationsDialog dialog(this);
+	dialog.onNew = [this]() {
+		NewDestination();
+	};
+	dialog.onBlending = [this](Destination *d) {
+		EditBlending(d);
+	};
+	dialog.onProject = [this](Destination *d) {
+		OpenProjector(d, true);
+	};
+	dialog.onDelete = [this](Destination *d) {
+		if (!d->IsMain()) {
+			DeleteDestination(d);
+			return;
+		}
+		if (!d->Disabled())
+			CloseProjectors(d);
+		Manager::Get().SetMainDisabled(!d->Disabled());
+	};
+	dialog.exec();
 }
 
 void StudioWindow::NewDestination()
