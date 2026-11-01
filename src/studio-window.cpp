@@ -176,6 +176,13 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 		UpdateControls();
 		UpdateGrids(true);
 	});
+	 /* Menu Destinations rempli immédiatement : les menus natifs macOS
+     * n'affichent pas de façon fiable un menu rempli via aboutToShow. */
+    connect(&m, &Manager::destinationsChanged, this, &StudioWindow::FillDestinationsMenu);
+    connect(&m, &Manager::scenesChanged, this, &StudioWindow::FillDestinationsMenu);
+    connect(&m, &Manager::previewChanged, this, &StudioWindow::FillDestinationsMenu);
+    connect(&m, &Manager::loaded, this, &StudioWindow::FillDestinationsMenu);
+	
 	connect(&m, &Manager::aboutToRemove, this, [this](Destination *dest) {
 		CloseProjectors(dest);
 		if (activeDest == dest)
@@ -689,6 +696,8 @@ void StudioWindow::BuildMenus()
 	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
 	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
 }
+
+FillDestinationsMenu();
 
 /* ------------------------------------------------------------------ */
 /* Commandes de fenêtre en plein écran                                  */
