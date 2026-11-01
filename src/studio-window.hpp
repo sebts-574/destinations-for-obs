@@ -36,6 +36,7 @@ class TileGrid;
 class TileWidget;
 class QAction;
 class QComboBox;
+class QLabel;
 class QListWidget;
 class QMenu;
 class QPushButton;
@@ -143,6 +144,8 @@ private:
 	void BuildWindowControls();
 	void UpdateWindowControls();
 	void PlaceFullscreenHint();
+	void ResetDocks();
+	void ApplyDefaultDockSizes();
 	void NewBlendedDestination();
 	void EditBlending(Destination *dest);
 	void RefreshBlendProjectors(Destination *dest);
@@ -161,6 +164,8 @@ private:
 	QWidget *windowControls = nullptr;
 	QPushButton *fullscreenButton = nullptr;
 	QWidget *fullscreenHint = nullptr;
+	QLabel *hintText = nullptr;
+	bool defaultDocksPending = true;
 	QAction *settingsMenuAction = nullptr;
 	QListWidget *sceneList = nullptr;
 	QListWidget *sourceList = nullptr;

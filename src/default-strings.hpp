@@ -219,4 +219,6 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.SettingLanguageIntro", "Language of Multidestination Studio, independent of the OBS language:"},
 	{"MDS.SettingLanguageObs", "Same as OBS"},
 	{"MDS.SettingLanguageRestart", "The new language is used after OBS restarts."},
+	{"MDS.FullscreenHintExit", "F11 to exit fullscreen"},
+	{"MDS.ResetDocks", "Reset docks"},
 };

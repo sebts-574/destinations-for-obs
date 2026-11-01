@@ -211,7 +211,6 @@ public:
 	ColumnTitle(const QString &text, QWidget *parent) : QLabel(text, parent)
 	{
 		setAlignment(Qt::AlignCenter);
-		setContentsMargins(0, 4, 0, 8);
 		Fit();
 	}
 
@@ -225,13 +224,18 @@ protected:
 private:
 	void Fit()
 	{
-		const int px = std::clamp(width() / 9, 30, 56);
-		if (font().pixelSize() == px && font().bold())
-			return;
-		QFont f = font();
-		f.setPixelSize(px);
-		f.setBold(true);
-		setFont(f);
+		/* Maquette (1920×1080) : titre d'environ 36 px pour une colonne
+		 * de 830 px, bien détaché du haut et des destinations. */
+		const int px = std::clamp(width() * 36 / 830, 22, 48);
+		if (font().pixelSize() != px || !font().bold()) {
+			QFont f = font();
+			f.setPixelSize(px);
+			f.setBold(true);
+			setFont(f);
+		}
+		const QMargins m(0, px * 2 / 3, 0, px);
+		if (contentsMargins() != m)
+			setContentsMargins(m);
 	}
 };
 
@@ -350,7 +354,7 @@ void StudioWindow::BuildDocks()
 	connect(downScene, &QToolButton::clicked, this, [this]() { MoveScene(1); });
 	sceneButtons->addWidget(upScene);
 	sceneButtons->addWidget(downScene);
-	auto *scenesDock = Dock(Tr("MDS.Scenes"), "mdsScenesDock", ListPanel(sceneList, sceneButtons, this), this);
+	Dock(Tr("MDS.Scenes"), "mdsScenesDock", ListPanel(sceneList, sceneButtons, this), this);
 
 	/* --- Sources --- */
 	/* Glisser-déposer pour changer l'ordre (haut de la liste = devant),
@@ -410,15 +414,15 @@ void StudioWindow::BuildDocks()
 	sourceButtons->addWidget(propSource);
 	sourceButtons->addWidget(upSource);
 	sourceButtons->addWidget(downSource);
-	auto *sourcesDock = Dock(Tr("MDS.Sources"), "mdsSourcesDock", ListPanel(sourceList, sourceButtons, this), this);
+	Dock(Tr("MDS.Sources"), "mdsSourcesDock", ListPanel(sourceList, sourceButtons, this), this);
 
 	/* --- Mixeur audio --- */
 	mixer = new AudioMixer(this, false);
-	auto *mixerDock = Dock(Tr("MDS.AudioMixer"), "mdsMixerDock", mixer, this);
+	Dock(Tr("MDS.AudioMixer"), "mdsMixerDock", mixer, this);
 
 	/* --- Contrôles média --- */
 	mediaControls = new MediaControls(this);
-	auto *mediaDock = Dock(Tr("MDS.MediaControls"), "mdsMediaDock", mediaControls, this);
+	Dock(Tr("MDS.MediaControls"), "mdsMediaDock", mediaControls, this);
 
 	/* --- Transitions de scène --- */
 	auto *transitions = new QWidget(this);
@@ -464,7 +468,7 @@ void StudioWindow::BuildDocks()
 	transitionNote->setWordWrap(true);
 	tl->addWidget(transitionNote);
 	tl->addStretch(1);
-	auto *transitionsDock = Dock(Tr("MDS.SceneTransitions"), "mdsTransitionsDock", transitions, this);
+	Dock(Tr("MDS.SceneTransitions"), "mdsTransitionsDock", transitions, this);
 
 	/* --- Commandes --- */
 	auto *controls = new QWidget(this);
@@ -500,19 +504,59 @@ void StudioWindow::BuildDocks()
 	connect(exit, &QPushButton::clicked, this, &StudioWindow::Close);
 	cl->addWidget(exit);
 	cl->addStretch(1);
-	auto *controlsDock = Dock(Tr("MDS.Controls"), "mdsControlsDock", controls, this);
+	Dock(Tr("MDS.Controls"), "mdsControlsDock", controls, this);
 	UpdateControls();
 
-	/* Disposition par défaut d'OBS : docks côte à côte en bas. */
-	addDockWidget(Qt::BottomDockWidgetArea, scenesDock);
-	splitDockWidget(scenesDock, sourcesDock, Qt::Horizontal);
-	splitDockWidget(sourcesDock, mixerDock, Qt::Horizontal);
-	splitDockWidget(mixerDock, transitionsDock, Qt::Horizontal);
-	splitDockWidget(transitionsDock, controlsDock, Qt::Horizontal);
-	splitDockWidget(transitionsDock, mediaDock, Qt::Vertical);
-	resizeDocks({scenesDock, sourcesDock, mixerDock, transitionsDock, controlsDock}, {200, 220, 320, 220, 180},
-		    Qt::Horizontal);
-	resizeDocks({scenesDock}, {260}, Qt::Vertical);
+	ResetDocks();
+}
+
+/* Disposition par défaut : six docks côte à côte en bas, dans cet ordre,
+ * avec ces proportions (d'après la maquette de Sébastien, en 1920×1080). */
+void StudioWindow::ResetDocks()
+{
+	const char *names[] = {"mdsScenesDock", "mdsSourcesDock",     "mdsMediaDock",
+			       "mdsMixerDock",  "mdsTransitionsDock", "mdsControlsDock"};
+	QList<QDockWidget *> docks;
+	for (const char *name : names) {
+		if (auto *dock = findChild<QDockWidget *>(name))
+			docks << dock;
+	}
+	if (docks.isEmpty())
+		return;
+
+	for (QDockWidget *dock : docks) {
+		dock->setFloating(false);
+		if (dockWidgetArea(dock) != Qt::NoDockWidgetArea)
+			removeDockWidget(dock);
+	}
+	addDockWidget(Qt::BottomDockWidgetArea, docks.front());
+	docks.front()->show();
+	for (int i = 1; i < docks.size(); i++) {
+		splitDockWidget(docks[i - 1], docks[i], Qt::Horizontal);
+		docks[i]->show();
+	}
+	defaultDocksPending = true;
+	ApplyDefaultDockSizes();
+}
+
+void StudioWindow::ApplyDefaultDockSizes()
+{
+	QList<QDockWidget *> docks;
+	for (const char *name : {"mdsScenesDock", "mdsSourcesDock", "mdsMediaDock", "mdsMixerDock",
+				 "mdsTransitionsDock", "mdsControlsDock"}) {
+		if (auto *dock = findChild<QDockWidget *>(name))
+			docks << dock;
+	}
+	if (docks.size() != 6)
+		return;
+	const int W = std::max(width(), 1200);
+	const int H = std::max(height(), 700);
+	const int parts[6] = {298, 327, 420, 285, 295, 268}; /* total 1893 */
+	QList<int> widths;
+	for (int p : parts)
+		widths << W * p / 1893;
+	resizeDocks(docks, widths, Qt::Horizontal);
+	resizeDocks({docks.front()}, {H * 242 / 1080}, Qt::Vertical);
 }
 
 QAction *StudioWindow::MakeEditAction(const QString &text, const QList<QKeySequence> &keys, void (StudioWindow::*fn)())
@@ -583,6 +627,11 @@ void StudioWindow::BuildMenus()
 	for (QDockWidget *dock : findChildren<QDockWidget *>())
 		viewMenu->addAction(dock->toggleViewAction());
 	viewMenu->addSeparator();
+	connect(viewMenu->addAction(Tr("MDS.ResetDocks")), &QAction::triggered, this, [this]() {
+		ResetDocks();
+		defaultDocksPending = false;
+		QTimer::singleShot(0, this, &StudioWindow::ApplyDefaultDockSizes);
+	});
 	auto *fullscreen = viewMenu->addAction(Tr("MDS.WindowFullscreen"));
 	fullscreen->setShortcut(QKeySequence(Qt::Key_F11));
 	fullscreen->setShortcutContext(Qt::WindowShortcut);
@@ -623,7 +672,7 @@ void StudioWindow::BuildMenus()
 	hintLayout->setSpacing(5);
 	auto *hintIcon = new QLabel(fullscreenHint);
 	hintIcon->setPixmap(style()->standardIcon(QStyle::SP_MessageBoxInformation).pixmap(14, 14));
-	auto *hintText = new QLabel(Tr("MDS.FullscreenHint"), fullscreenHint);
+	hintText = new QLabel(Tr("MDS.FullscreenHint"), fullscreenHint);
 	hintText->setStyleSheet("QLabel { color: #8ab4f8; font-style: italic; }");
 	hintLayout->addWidget(hintIcon);
 	hintLayout->addWidget(hintText);
@@ -678,6 +727,16 @@ void StudioWindow::UpdateWindowControls()
 {
 	if (!windowControls)
 		return;
+
+	/* Texte d'info selon l'état de la fenêtre. */
+	if (hintText) {
+		const QString hint = isFullScreen() ? Tr("MDS.FullscreenHintExit") : Tr("MDS.FullscreenHint");
+		if (hintText->text() != hint) {
+			hintText->setText(hint);
+			PlaceFullscreenHint();
+		}
+	}
+
 	if (!isVisible() || !isFullScreen() || isMinimized()) {
 		windowControls->hide();
 		return;
@@ -732,6 +791,14 @@ void StudioWindow::Open()
 	showFullScreen();
 	raise();
 	activateWindow();
+	/* Tailles par défaut des docks, une fois la taille réelle connue. */
+	if (defaultDocksPending)
+		QTimer::singleShot(150, this, [this]() {
+			if (!defaultDocksPending)
+				return;
+			defaultDocksPending = false;
+			ApplyDefaultDockSizes();
+		});
 
 	UpdateGrids(true);
 }
@@ -802,8 +869,8 @@ QByteArray StudioWindow::SaveLayout() const
 
 void StudioWindow::RestoreLayout(const QByteArray &state)
 {
-	if (!state.isEmpty())
-		restoreState(state);
+	if (!state.isEmpty() && restoreState(state))
+		defaultDocksPending = false;
 }
 
 void StudioWindow::UpdateControls()

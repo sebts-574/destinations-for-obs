@@ -4,7 +4,7 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab.
 
-> Statut : **V0.9.2 — prototype**. Compile pour macOS, Windows et Linux ;
+> Statut : **V0.9.3 — prototype**. Compile pour macOS, Windows et Linux ;
 > la V0.8 a été testée dans OBS (sauf l'Output blending), la V0.9 pas encore.
 
 ## Installer
@@ -20,6 +20,17 @@ build → Artifacts) :
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.9.3
+
+- Noms des destinations jamais abrégés : la police rétrécit pour que tout
+  le nom tienne.
+- Titres Aperçu / Programme replacés et dimensionnés d'après la maquette.
+- Disposition des docks par défaut : Scènes, Sources, Contrôles média,
+  Mixeur audio, Transitions de scène, Commandes, côte à côte en bas.
+  « Réinitialiser les docks » dans le menu Docks.
+- Info F11 : « pour basculer en plein écran » ou « pour quitter le plein
+  écran » selon l'état de la fenêtre.
 
 ## Nouveautés V0.9.2
 

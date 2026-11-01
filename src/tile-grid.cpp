@@ -275,7 +275,7 @@ void TileWidget::FitHeaderButtons()
 	int needed = widthFor(focusFull) + badgeW;
 	if (lockButton)
 		needed += widthFor(lockFull);
-	const int labelMin = std::min(labelFm.horizontalAdvance(headerText), 160);
+	const int labelMin = std::min(labelFm.horizontalAdvance(headerText), 220);
 	const bool full = needed + labelMin + 16 <= total;
 
 	const QString focusText = full ? focusFull : symbol(focusFull);
@@ -290,7 +290,17 @@ void TileWidget::FitHeaderButtons()
 		lockButton->setFixedWidth(widthFor(lockText));
 		used += lockButton->width();
 	}
-	headerLabel->setText(labelFm.elidedText(headerText, Qt::ElideRight, std::max(20, total - used)));
+	/* Nom complet, jamais abrégé : la police rétrécit jusqu'à ce qu'il
+	 * tienne (« … » seulement en dernier recours, sous 8 px). */
+	const int room = std::max(20, total - used);
+	QFont fitted = labelFont;
+	int px = labelFont.pixelSize();
+	while (px > 8 && QFontMetrics(fitted).horizontalAdvance(headerText) > room) {
+		px--;
+		fitted.setPixelSize(px);
+	}
+	headerLabel->setFont(fitted);
+	headerLabel->setText(QFontMetrics(fitted).elidedText(headerText, Qt::ElideRight, room));
 }
 
 /* ------------------------------------------------------------------ */
