@@ -18,26 +18,32 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #pragma once
 
+#include "scene-editor.hpp"
+
 #include <obs.hpp>
 
+#include <QMainWindow>
 #include <QPointer>
-#include <QWidget>
 
 #include <vector>
 
+class AudioMixer;
 class Destination;
 class ProjectorWindow;
 class TileGrid;
 class TileWidget;
-class QCheckBox;
-class QLabel;
+class QAction;
+class QComboBox;
 class QListWidget;
+class QMenu;
+class QPushButton;
+class QSpinBox;
 class QToolButton;
 
-/* Vue Studio : Preview (édition) et Program des destinations couvertes par
- * la scène sélectionnée, empilées verticalement, avec les listes de scènes,
- * de sources et de destinations. */
-class StudioWindow : public QWidget {
+/* Multidestination Studio : alternative complète à la fenêtre d'OBS pour
+ * travailler sur plusieurs destinations (Preview / Program par destination,
+ * scènes, sources, mixeur, transitions). */
+class StudioWindow : public QMainWindow {
 	Q_OBJECT
 
 public:
@@ -51,6 +57,10 @@ public:
 
 	/* Demande les destinations d'une scène créée dans OBS. */
 	void AskCoverage(obs_source_t *scene);
+	void RefreshTransitions();
+
+	QByteArray SaveLayout() const;
+	void RestoreLayout(const QByteArray &state);
 
 protected:
 	void closeEvent(QCloseEvent *event) override;
@@ -60,47 +70,87 @@ private slots:
 	void UpdateGrids(bool force);
 	void RefreshScenes();
 	void RefreshSources();
-	void RefreshDestinations();
 	void RefreshTally();
 	void OnReset();
 
 private:
-	void BuildUi();
+	void BuildCentral();
+	void BuildDocks();
+	void BuildMenus();
 	void ConnectTile(TileWidget *tile);
 	void SetActiveDestination(Destination *dest);
 	TileWidget *ActivePreviewTile() const;
 	void UpdateShowing(const std::vector<OBSSource> &next);
 
+	/* Scènes */
 	void AddScene();
 	void EditScene(obs_source_t *scene);
 	void RemoveScene(obs_source_t *scene);
 	OBSSource SelectedScene() const;
 
-	void FillAddSourceMenu();
-	void RemoveSelectedSource();
-	void MoveSelectedSource(enum obs_order_movement movement);
-	void OpenSelectedSourceProperties(bool filters);
+	/* Sources de la destination active */
+	OBSSceneItem CurrentItem() const;
+	void SelectItem(int64_t id);
+	void FillAddSourceMenu(QMenu *menu);
+	void CreateNewSource(const char *typeId);
+	void AddExistingSource(obs_source_t *source);
+	void ShowItemMenu(const QPoint &globalPos);
 
-	void AddDestination();
+	/* Édition (menus + raccourcis) */
+	QAction *MakeEditAction(const QString &text, const QList<QKeySequence> &keys, void (StudioWindow::*fn)());
+	void EditCopy();
+	void EditPaste();
+	void EditRemove();
+	void EditCopyTransform();
+	void EditPasteTransform();
+	void EditResetTransform();
+	void EditFit();
+	void EditStretch();
+	void EditCenter();
+	void EditMoveUp();
+	void EditMoveDown();
+	void EditMoveTop();
+	void EditMoveBottom();
+	void EditProperties();
+	void EditFilters();
+
+	/* Destinations */
+	void FillDestinationsMenu();
+	void NewDestination();
 	void EditDestination(Destination *dest);
-	void RemoveDestination(Destination *dest);
-	Destination *SelectedDestination() const;
-	void FillProjectorMenu();
-	void OpenProjector(Destination *dest, int screenIndex);
+	void DeleteDestination(Destination *dest);
+	void OpenProjector(Destination *dest, bool fullscreen);
 	void CloseProjectors(Destination *dest);
+	bool HasProjector(Destination *dest) const;
+
+	void UpdateControls();
 
 	TileGrid *pvwGrid = nullptr;
 	TileGrid *pgmGrid = nullptr;
+	QWidget *monitors = nullptr;
 	QListWidget *sceneList = nullptr;
 	QListWidget *sourceList = nullptr;
-	QListWidget *destList = nullptr;
-	QLabel *sourcesTitle = nullptr;
 	QToolButton *addSourceButton = nullptr;
-	QToolButton *projectorButton = nullptr;
-	QCheckBox *followObs = nullptr;
+	AudioMixer *mixer = nullptr;
+	QComboBox *transitionCombo = nullptr;
+	QSpinBox *durationSpin = nullptr;
+	QPushButton *streamButton = nullptr;
+	QPushButton *recordButton = nullptr;
+	QMenu *destinationsMenu = nullptr;
+	QMenu *viewMenu = nullptr;
+	std::vector<QAction *> editActions;
 
 	Destination *activeDest = nullptr;
 	std::vector<OBSSource> showing;
 	std::vector<std::pair<Destination *, QPointer<ProjectorWindow>>> projectors;
 	bool refreshingSources = false;
+	bool refreshingTransitions = false;
+	bool layoutRestored = false;
+
+	/* Presse-papiers de l'édition. */
+	OBSWeakSource clipboardSource;
+	SceneEditor::Transform clipboardTransform;
+	bool hasClipboardTransform = false;
+	SceneEditor::Transform copiedTransform;
+	bool hasCopiedTransform = false;
 };

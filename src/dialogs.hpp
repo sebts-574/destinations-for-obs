@@ -24,24 +24,31 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <string>
 
 class Destination;
+class QScreen;
+class QString;
 class QWidget;
 
 namespace Dialogs {
 
-/* Nom et destinations couvertes d'une scène commune. isNew : scène qui
- * vient d'être créée (toutes les destinations cochées par défaut). */
+/* Nom et destinations couvertes d'une scène. isNew : scène qui vient d'être
+ * créée (toutes les destinations cochées par défaut). */
 bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage, bool isNew);
 
 struct DestinationSettings {
 	std::string name;
 	uint32_t width = 1920;
 	uint32_t height = 1080;
-	std::string transition = "fade_transition";
-	int duration = 500;
-	bool coverAll = true; /* création uniquement */
+	std::string outputScreen; /* nom de l'écran, vide = aucun */
 };
 
-/* Création (dest == nullptr) ou réglages d'une destination. */
+/* Nouvelle destination (dest == nullptr) ou paramètres d'une destination. */
 bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &settings);
+
+/* « Êtes-vous sûr ? » avant de supprimer une destination. */
+bool ConfirmDeleteDestination(QWidget *parent, Destination *dest);
+
+/* Écran physique par son nom, ou nullptr. */
+QScreen *FindScreen(const std::string &name);
+QString ScreenLabel(QScreen *screen, int index);
 
 } // namespace Dialogs

@@ -31,7 +31,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 class Destination;
 class EditDisplay;
 class QLabel;
-class QToolButton;
+class QPushButton;
 
 /* Une destination dans la grille Preview ou Program de la vue Studio.
  * En Preview, permet d'éditer les sources à la souris. */
@@ -63,14 +63,12 @@ public:
 	void MouseDoubleClick(QMouseEvent *event);
 	bool KeyPress(QKeyEvent *event);
 
-	void ShowItemMenu(const QPoint &globalPos);
-
 signals:
 	void activated(TileWidget *tile);
 	void selectionChanged(TileWidget *tile, qint64 itemId);
 	void itemsChanged(TileWidget *tile);
-	void takeRequested(TileWidget *tile);
 	void lockChanged(TileWidget *tile);
+	void contextMenuRequested(TileWidget *tile, const QPoint &globalPos);
 
 private:
 	static void DrawCb(void *data, uint32_t cx, uint32_t cy);
@@ -84,8 +82,7 @@ private:
 
 	QWidget *header = nullptr;
 	QLabel *headerLabel = nullptr;
-	QToolButton *lockButton = nullptr;
-	QToolButton *takeButton = nullptr;
+	QPushButton *lockButton = nullptr;
 	EditDisplay *display = nullptr;
 
 	mutable std::mutex mutex;

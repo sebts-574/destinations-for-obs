@@ -84,16 +84,15 @@ public:
 	void SyncWithMainScenes(const std::vector<OBSSource> &mainScenes);
 
 	/* --- Program --- */
-	void Take(obs_source_t *linkedScene, bool cut);
+	/* Passe la scène liée à l'antenne. Les destinations supplémentaires
+	 * utilisent une copie de la transition d'OBS (templ) ; la destination
+	 * par défaut utilise directement celle d'OBS. */
+	void Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ, int durationMs);
 	std::string ProgramSceneName() const;
 
-	/* --- Transitions (destinations supplémentaires ; la destination par
-	 * défaut utilise la transition d'OBS) --- */
-	static std::vector<std::pair<std::string, std::string>> TransitionTypes();
-	void SetTransitionType(const std::string &id);
-	std::string TransitionType() const { return transitionType; }
-	void SetTransitionDuration(int ms) { durationMs = ms < 0 ? 0 : ms; }
-	int TransitionDuration() const { return durationMs; }
+	/* --- Écran de sortie physique (nom QScreen, vide = aucun) --- */
+	const std::string &OutputScreen() const { return outputScreen; }
+	void SetOutputScreen(const std::string &screen) { outputScreen = screen; }
 
 	/* --- Rendu (thread graphique) --- */
 	void RenderProgram();
@@ -106,7 +105,7 @@ private:
 	Destination() = default;
 
 	OBSSource FindLinked(const std::string &mainUuid) const;
-	void CreateTransition(const std::string &id);
+	void CreateTransitionFrom(obs_source_t *templ);
 	void StartVideo();
 
 	bool isMain = false;
@@ -122,6 +121,6 @@ private:
 	mutable std::mutex mutex;
 	OBSWeakSource programScene;
 	OBSSource transition;
-	std::string transitionType = "fade_transition";
-	int durationMs = 500;
+	std::string transitionSignature; /* id + réglages de la transition copiée */
+	std::string outputScreen;
 };

@@ -40,7 +40,7 @@ std::vector<Destination *> Manager::Destinations() const
 	return list;
 }
 
-Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t height, bool coverAllScenes)
+Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t height)
 {
 	auto dest = std::make_unique<Destination>(name);
 	if (!dest->Attach(width, height))
@@ -49,12 +49,10 @@ Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t heig
 	Destination *raw = dest.get();
 	destinations.push_back(std::move(dest));
 
-	if (coverAllScenes) {
-		creatingScene = true;
-		for (auto &scene : MainScenes())
-			raw->AddCoverage(scene);
-		creatingScene = false;
-	}
+	creatingScene = true;
+	for (auto &scene : MainScenes())
+		raw->AddCoverage(scene);
+	creatingScene = false;
 
 	emit destinationsChanged();
 	emit scenesChanged();
@@ -198,51 +196,34 @@ void Manager::SetPreviewScene(obs_source_t *mainScene)
 	emit previewChanged();
 }
 
-static void TakeAll(const std::vector<std::unique_ptr<Destination>> &destinations, obs_source_t *mainScene, bool cut,
-		    bool includeMain)
-{
-	for (auto &d : destinations) {
-		if ((d->IsMain() && !includeMain) || d->Locked())
-			continue;
-		OBSSource linked = d->LinkedScene(mainScene);
-		if (linked)
-			d->Take(linked, cut);
-	}
-}
-
 void Manager::Take(bool cut)
 {
 	OBSSource preview = PreviewScene();
 	if (!preview)
 		return;
 
+	OBSSource oldProgram = ProgramScene();
+	OBSSourceAutoRelease templ = obs_frontend_get_current_transition();
+	const int duration = obs_frontend_get_transition_duration();
+
 	taking = true;
-	TakeAll(destinations, preview, cut, true);
+	for (auto &d : destinations) {
+		if (d->Locked())
+			continue;
+		OBSSource linked = d->LinkedScene(preview);
+		if (linked)
+			d->Take(linked, cut, templ, duration);
+	}
 	taking = false;
 
 	programScene = OBSGetWeakRef(preview.Get());
 	emit programChanged();
-}
 
-void Manager::TakeOne(Destination *dest, bool cut)
-{
-	OBSSource preview = PreviewScene();
-	if (!dest || !preview)
-		return;
-	OBSSource linked = dest->LinkedScene(preview);
-	if (!linked)
-		return;
-	taking = true;
-	dest->Take(linked, cut);
-	taking = false;
-	emit programChanged();
-}
-
-void Manager::OnSceneCreated(obs_source_t *scene)
-{
-	if (!ready || creatingScene || !scene)
-		return;
-	emit sceneCreatedInObs(OBSSource(scene));
+	/* Comme OBS : l'ancien Program revient en Preview. */
+	if (oldProgram && oldProgram.Get() != preview.Get()) {
+		previewScene = OBSGetWeakRef(oldProgram.Get());
+		emit previewChanged();
+	}
 }
 
 void Manager::OnObsProgramChanged()
@@ -250,16 +231,11 @@ void Manager::OnObsProgramChanged()
 	if (!ready)
 		return;
 
+	/* Un changement de scène fait dans OBS n'agit que sur la destination
+	 * par défaut ; on suit seulement le Program pour l'affichage. */
 	OBSSourceAutoRelease current = obs_frontend_get_current_scene();
-	if (!current)
-		return;
-
-	if (!taking && !obs_weak_source_references_source(programScene, current)) {
-		/* Changement de scène fait dans OBS, hors de la vue Studio. */
-		if (followObs)
-			TakeAll(destinations, current, false, false);
+	if (current && !taking && !obs_weak_source_references_source(programScene, current))
 		programScene = OBSGetWeakRef(current.Get());
-	}
 	emit programChanged();
 }
 
@@ -280,7 +256,6 @@ void Manager::Save(obs_data_t *data) const
 	OBSSource preview = PreviewScene();
 	const char *uuid = preview ? obs_source_get_uuid(preview) : nullptr;
 	obs_data_set_string(data, "preview_scene", uuid ? uuid : "");
-	obs_data_set_bool(data, "follow_obs", followObs);
 }
 
 void Manager::ApplyLoad()
@@ -296,9 +271,6 @@ void Manager::ApplyLoad()
 	ready = true;
 
 	if (data) {
-		obs_data_set_default_bool(data, "follow_obs", true);
-		followObs = obs_data_get_bool(data, "follow_obs");
-
 		OBSDataArrayAutoRelease list = obs_data_get_array(data, "list");
 		const size_t count = obs_data_array_count(list);
 		for (size_t i = 0; i < count; i++) {

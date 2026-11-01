@@ -61,6 +61,11 @@ target_sources(
     src/render-helpers.hpp
     src/dialogs.cpp
     src/dialogs.hpp
+    src/audio-mixer.cpp
+    src/audio-mixer.hpp
+    src/text.cpp
+    src/text.hpp
+    src/default-strings.hpp
     src/projector-window.cpp
     src/projector-window.hpp
     src/qt-display.cpp

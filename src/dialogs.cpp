@@ -19,8 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "dialogs.hpp"
 #include "destination.hpp"
 #include "manager.hpp"
-
-#include <obs-module.h>
+#include "text.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -28,30 +27,57 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
+#include <QGuiApplication>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QScreen>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
 #include <vector>
 
-#define T(key) QString::fromUtf8(obs_module_text(key))
-
 namespace Dialogs {
+
+QScreen *FindScreen(const std::string &name)
+{
+	if (name.empty())
+		return nullptr;
+	for (QScreen *screen : QGuiApplication::screens()) {
+		if (screen->name().toStdString() == name)
+			return screen;
+	}
+	return nullptr;
+}
+
+QString ScreenLabel(QScreen *screen, int index)
+{
+	const QRect g = screen->geometry();
+	const qreal ratio = screen->devicePixelRatio();
+	return QString("%1 %2 : %3 (%4×%5)")
+		.arg(Tr("MDS.Screen"))
+		.arg(index + 1)
+		.arg(screen->name())
+		.arg(int(g.width() * ratio))
+		.arg(int(g.height() * ratio));
+}
 
 bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage, bool isNew)
 {
 	QDialog dialog(parent);
-	dialog.setWindowTitle(isNew ? T("Destinations.AddScene") : T("Destinations.SceneProperties"));
+	dialog.setWindowTitle(isNew ? Tr("MDS.NewScene") : Tr("MDS.SceneSettings"));
+	dialog.setMinimumWidth(380);
 	auto *layout = new QVBoxLayout(&dialog);
 
 	auto *form = new QFormLayout();
 	auto *nameEdit = new QLineEdit(QString::fromStdString(name), &dialog);
 	nameEdit->selectAll();
-	form->addRow(T("Destinations.SceneName"), nameEdit);
+	form->addRow(Tr("MDS.Name"), nameEdit);
 	layout->addLayout(form);
 
-	auto *group = new QGroupBox(T("Destinations.CoveredDestinations"), &dialog);
+	auto *group = new QGroupBox(Tr("MDS.ShowSceneOn"), &dialog);
 	auto *groupLayout = new QVBoxLayout(group);
 	std::vector<std::pair<Destination *, QCheckBox *>> boxes;
 	for (auto *d : Manager::Get().Destinations()) {
@@ -65,7 +91,7 @@ bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set
 	layout->addWidget(group);
 
 	if (!isNew) {
-		auto *note = new QLabel(T("Destinations.CoverageNote"), &dialog);
+		auto *note = new QLabel(Tr("MDS.UncheckWarning"), &dialog);
 		note->setWordWrap(true);
 		layout->addWidget(note);
 	}
@@ -87,62 +113,81 @@ bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set
 	return !name.empty();
 }
 
+static QComboBox *ScreenCombo(const std::string &current, QWidget *parent)
+{
+	auto *combo = new QComboBox(parent);
+	combo->addItem(Tr("MDS.NoScreen"), QString());
+	const QList<QScreen *> screens = QGuiApplication::screens();
+	for (int i = 0; i < screens.size(); i++) {
+		combo->addItem(ScreenLabel(screens[i], i), screens[i]->name());
+		if (screens[i]->name().toStdString() == current)
+			combo->setCurrentIndex(combo->count() - 1);
+	}
+	/* Écran configuré mais débranché : on le garde dans la liste. */
+	if (!current.empty() && !FindScreen(current)) {
+		combo->addItem(Tr("MDS.ScreenMissing").arg(QString::fromStdString(current)),
+			       QString::fromStdString(current));
+		combo->setCurrentIndex(combo->count() - 1);
+	}
+	return combo;
+}
+
 bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &settings)
 {
 	QDialog dialog(parent);
-	dialog.setWindowTitle(dest ? T("Destinations.DestinationSettings") : T("Destinations.AddDestination"));
+	dialog.setWindowTitle(dest ? Tr("MDS.DestinationSettingsTitle").arg(QString::fromStdString(dest->Name()))
+				   : Tr("MDS.NewDestination"));
+	dialog.setMinimumWidth(420);
 	auto *form = new QFormLayout(&dialog);
 
-	if (dest && dest->IsMain()) {
-		auto *info = new QLabel(T("Destinations.MainInfo").arg(dest->Width()).arg(dest->Height()), &dialog);
+	const bool isMain = dest && dest->IsMain();
+	QLineEdit *nameEdit = nullptr;
+	QSpinBox *widthSpin = nullptr;
+	QSpinBox *heightSpin = nullptr;
+
+	if (isMain) {
+		form->addRow(Tr("MDS.Name"), new QLabel(QString::fromStdString(dest->Name()), &dialog));
+		auto *res = new QLabel(QString("%1×%2").arg(dest->Width()).arg(dest->Height()), &dialog);
+		form->addRow(Tr("MDS.Resolution"), res);
+		auto *info = new QLabel(Tr("MDS.MainInfo"), &dialog);
 		info->setWordWrap(true);
 		form->addRow(info);
-		auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
-		QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-		form->addRow(buttons);
-		dialog.exec();
-		return false;
-	}
-
-	auto *nameEdit = new QLineEdit(QString::fromStdString(settings.name), &dialog);
-	form->addRow(T("Destinations.Name"), nameEdit);
-
-	auto *widthSpin = new QSpinBox(&dialog);
-	widthSpin->setRange(16, 16384);
-	widthSpin->setValue(int(settings.width));
-	auto *heightSpin = new QSpinBox(&dialog);
-	heightSpin->setRange(16, 16384);
-	heightSpin->setValue(int(settings.height));
-	form->addRow(T("Destinations.Width"), widthSpin);
-	form->addRow(T("Destinations.Height"), heightSpin);
-
-	auto *transitionCombo = new QComboBox(&dialog);
-	for (const auto &[id, display] : Destination::TransitionTypes()) {
-		transitionCombo->addItem(QString::fromStdString(display), QString::fromStdString(id));
-		if (id == settings.transition)
-			transitionCombo->setCurrentIndex(transitionCombo->count() - 1);
-	}
-	form->addRow(T("Destinations.Transition"), transitionCombo);
-
-	auto *durationSpin = new QSpinBox(&dialog);
-	durationSpin->setRange(0, 20000);
-	durationSpin->setSingleStep(100);
-	durationSpin->setSuffix(" ms");
-	durationSpin->setValue(settings.duration);
-	form->addRow(T("Destinations.Duration"), durationSpin);
-
-	QCheckBox *coverAll = nullptr;
-	if (!dest) {
-		coverAll = new QCheckBox(T("Destinations.CoverAllScenes"), &dialog);
-		coverAll->setChecked(settings.coverAll);
-		form->addRow(coverAll);
 	} else {
-		auto *note = new QLabel(T("Destinations.ResolutionNote"), &dialog);
-		note->setWordWrap(true);
-		form->addRow(note);
+		nameEdit = new QLineEdit(QString::fromStdString(settings.name), &dialog);
+		form->addRow(Tr("MDS.Name"), nameEdit);
+
+		widthSpin = new QSpinBox(&dialog);
+		widthSpin->setRange(16, 16384);
+		widthSpin->setValue(int(settings.width));
+		heightSpin = new QSpinBox(&dialog);
+		heightSpin->setRange(16, 16384);
+		heightSpin->setValue(int(settings.height));
+		auto *resRow = new QHBoxLayout();
+		resRow->addWidget(widthSpin);
+		resRow->addWidget(new QLabel("×", &dialog));
+		resRow->addWidget(heightSpin);
+		resRow->addStretch(1);
+		form->addRow(Tr("MDS.Resolution"), resRow);
+	}
+
+	QComboBox *screenCombo = ScreenCombo(settings.outputScreen, &dialog);
+	form->addRow(Tr("MDS.OutputScreen"), screenCombo);
+
+	/* Préremplir la résolution avec celle de l'écran choisi. */
+	if (widthSpin && heightSpin) {
+		QObject::connect(screenCombo, &QComboBox::currentIndexChanged, &dialog, [=](int) {
+			QScreen *screen = FindScreen(screenCombo->currentData().toString().toStdString());
+			if (!screen)
+				return;
+			const qreal ratio = screen->devicePixelRatio();
+			widthSpin->setValue(int(screen->geometry().width() * ratio));
+			heightSpin->setValue(int(screen->geometry().height() * ratio));
+		});
 	}
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	if (!dest)
+		buttons->button(QDialogButtonBox::Ok)->setText(Tr("MDS.Create"));
 	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 	form->addRow(buttons);
@@ -150,14 +195,28 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 	if (dialog.exec() != QDialog::Accepted)
 		return false;
 
-	settings.name = nameEdit->text().trimmed().toStdString();
-	settings.width = uint32_t(widthSpin->value());
-	settings.height = uint32_t(heightSpin->value());
-	settings.transition = transitionCombo->currentData().toString().toStdString();
-	settings.duration = durationSpin->value();
-	if (coverAll)
-		settings.coverAll = coverAll->isChecked();
-	return !settings.name.empty();
+	if (nameEdit)
+		settings.name = nameEdit->text().trimmed().toStdString();
+	if (widthSpin)
+		settings.width = uint32_t(widthSpin->value());
+	if (heightSpin)
+		settings.height = uint32_t(heightSpin->value());
+	settings.outputScreen = screenCombo->currentData().toString().toStdString();
+	return isMain || !settings.name.empty();
+}
+
+bool ConfirmDeleteDestination(QWidget *parent, Destination *dest)
+{
+	QMessageBox box(parent);
+	box.setIcon(QMessageBox::Warning);
+	box.setWindowTitle(Tr("MDS.DeleteDestinationTitle"));
+	box.setText(Tr("MDS.DeleteDestinationText").arg(QString::fromStdString(dest->Name())));
+	box.setInformativeText(Tr("MDS.DeleteDestinationInfo"));
+	QPushButton *yes = box.addButton(Tr("MDS.Delete"), QMessageBox::DestructiveRole);
+	box.addButton(QMessageBox::Cancel);
+	box.setDefaultButton(QMessageBox::Cancel);
+	box.exec();
+	return box.clickedButton() == yes;
 }
 
 } // namespace Dialogs

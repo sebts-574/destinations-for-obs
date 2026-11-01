@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "destination.hpp"
+#include "text.hpp"
 
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
@@ -38,7 +39,7 @@ Destination *Destination::CreateMain()
 {
 	auto *dest = new Destination();
 	dest->isMain = true;
-	dest->name = "Défaut (OBS)";
+	dest->name = Tr("MDS.DefaultDestination").toStdString();
 	return dest;
 }
 
@@ -124,7 +125,7 @@ bool Destination::Attach(uint32_t w, uint32_t h, const std::string &uuidHint)
 	StartVideo();
 
 	if (!transition)
-		CreateTransition(transitionType);
+		CreateTransitionFrom(nullptr);
 
 	obs_log(LOG_INFO, "[%s] destination prête (%ux%u)", name.c_str(), width, height);
 	return true;
@@ -399,7 +400,7 @@ static OBSSource FindFrontendTransition(const char *id)
 	return found;
 }
 
-void Destination::Take(obs_source_t *linkedScene, bool cut)
+void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ, int durationMs)
 {
 	if (!linkedScene)
 		return;
@@ -422,18 +423,18 @@ void Destination::Take(obs_source_t *linkedScene, bool cut)
 		return;
 	}
 
-	if (!transition)
-		return;
-
 	{
-		/* Déjà à l'antenne : rien à faire (évite une double transition
-		 * quand OBS et le plugin déclenchent le même changement). */
+		/* Déjà à l'antenne : rien à faire. */
 		std::lock_guard<std::mutex> lock(mutex);
 		if (obs_weak_source_references_source(programScene, linkedScene))
 			return;
 	}
 
-	const bool immediate = cut || transitionType == "cut_transition" || durationMs == 0;
+	CreateTransitionFrom(templ);
+	if (!transition)
+		return;
+
+	const bool immediate = cut || obs_transition_fixed(transition) || durationMs <= 0;
 	if (immediate) {
 		obs_transition_force_stop(transition);
 		obs_transition_set(transition, linkedScene);
@@ -462,30 +463,35 @@ std::string Destination::ProgramSceneName() const
 /* Transitions                                                          */
 /* ------------------------------------------------------------------ */
 
-std::vector<std::pair<std::string, std::string>> Destination::TransitionTypes()
+static std::string TransitionSignature(obs_source_t *templ)
 {
-	std::vector<std::pair<std::string, std::string>> types;
-	const char *id = nullptr;
-	size_t idx = 0;
-	while (obs_enum_transition_types(idx++, &id)) {
-		/* Le stinger a besoin d'un fichier vidéo : réglages plus tard. */
-		if (strcmp(id, "obs_stinger_transition") == 0)
-			continue;
-		const char *display = obs_source_get_display_name(id);
-		types.emplace_back(id, display ? display : id);
-	}
-	return types;
+	if (!templ)
+		return "fade_transition";
+	std::string sig = obs_source_get_id(templ);
+	OBSDataAutoRelease settings = obs_source_get_settings(templ);
+	const char *json = settings ? obs_data_get_json(settings) : nullptr;
+	if (json)
+		sig += json;
+	return sig;
 }
 
-void Destination::CreateTransition(const std::string &id)
+/* Copie privée de la transition d'OBS (même type, mêmes réglages), recréée
+ * seulement si elle a changé depuis la dernière fois. */
+void Destination::CreateTransitionFrom(obs_source_t *templ)
 {
 	if (isMain)
 		return;
 
-	std::string trName = name + " - transition";
-	OBSSourceAutoRelease next = obs_source_create_private(id.c_str(), trName.c_str(), nullptr);
+	const std::string sig = TransitionSignature(templ);
+	if (transition && sig == transitionSignature)
+		return;
+
+	const std::string trName = name + " - transition";
+	OBSDataAutoRelease settings = templ ? obs_source_get_settings(templ) : nullptr;
+	const char *id = templ ? obs_source_get_id(templ) : "fade_transition";
+	OBSSourceAutoRelease next = obs_source_create_private(id, trName.c_str(), settings);
 	if (!next) {
-		obs_log(LOG_WARNING, "[%s] transition « %s » introuvable, fondu utilisé", name.c_str(), id.c_str());
+		obs_log(LOG_WARNING, "[%s] transition « %s » indisponible, fondu utilisé", name.c_str(), id);
 		next = obs_source_create_private("fade_transition", trName.c_str(), nullptr);
 		if (!next)
 			return;
@@ -495,6 +501,7 @@ void Destination::CreateTransition(const std::string &id)
 
 	OBSSource previous = transition;
 	if (previous) {
+		obs_transition_force_stop(previous);
 		obs_transition_swap_begin(next, previous);
 		if (canvas)
 			obs_canvas_set_channel(canvas, 0, next);
@@ -511,15 +518,7 @@ void Destination::CreateTransition(const std::string &id)
 	}
 
 	transition = next.Get();
-}
-
-void Destination::SetTransitionType(const std::string &id)
-{
-	if (isMain || id.empty() || id == transitionType)
-		return;
-	transitionType = id;
-	if (canvas)
-		CreateTransition(id);
+	transitionSignature = sig;
 }
 
 /* ------------------------------------------------------------------ */
@@ -553,14 +552,13 @@ void Destination::Save(obs_data_t *data) const
 	obs_data_set_string(data, "id", Id().c_str());
 	obs_data_set_bool(data, "main", isMain);
 	obs_data_set_bool(data, "locked", locked);
+	obs_data_set_string(data, "output_screen", outputScreen.c_str());
 	if (isMain)
 		return;
 
 	obs_data_set_string(data, "name", name.c_str());
 	obs_data_set_int(data, "width", width);
 	obs_data_set_int(data, "height", height);
-	obs_data_set_string(data, "transition", transitionType.c_str());
-	obs_data_set_int(data, "transition_duration", durationMs);
 
 	OBSSource program;
 	{
@@ -574,17 +572,14 @@ void Destination::Save(obs_data_t *data) const
 void Destination::Load(obs_data_t *data)
 {
 	locked = obs_data_get_bool(data, "locked");
+	outputScreen = obs_data_get_string(data, "output_screen");
 	if (isMain)
 		return;
 
 	obs_data_set_default_int(data, "width", 1920);
 	obs_data_set_default_int(data, "height", 1080);
-	obs_data_set_default_string(data, "transition", "fade_transition");
-	obs_data_set_default_int(data, "transition_duration", 500);
 
 	name = obs_data_get_string(data, "name");
-	transitionType = obs_data_get_string(data, "transition");
-	durationMs = int(obs_data_get_int(data, "transition_duration"));
 
 	Attach(uint32_t(obs_data_get_int(data, "width")), uint32_t(obs_data_get_int(data, "height")),
 	       obs_data_get_string(data, "id"));

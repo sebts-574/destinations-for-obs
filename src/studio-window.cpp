@@ -17,71 +17,90 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "studio-window.hpp"
+#include "audio-mixer.hpp"
 #include "destination.hpp"
 #include "dialogs.hpp"
 #include "manager.hpp"
 #include "projector-window.hpp"
-#include "scene-editor.hpp"
+#include "text.hpp"
 #include "tile-grid.hpp"
 
 #include <obs-frontend-api.h>
-#include <obs-module.h>
 
-#include <QCheckBox>
 #include <QCloseEvent>
-#include <QGuiApplication>
+#include <QComboBox>
+#include <QDockWidget>
 #include <QHBoxLayout>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScreen>
 #include <QShortcut>
-#include <QSplitter>
+#include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
-#define T(key) QString::fromUtf8(obs_module_text(key))
+#include <algorithm>
+#include <cstring>
+#include <memory>
 
-static const QColor PREVIEW_COLOR(40, 170, 80);
-static const QColor PROGRAM_COLOR(220, 50, 50);
+/* ------------------------------------------------------------------ */
+/* Petits utilitaires d'interface                                       */
+/* ------------------------------------------------------------------ */
 
-static QToolButton *SmallButton(const QString &text, const QString &tip, QWidget *parent)
+static QToolButton *ToolButton(const QString &text, const QString &tip, QWidget *parent)
 {
 	auto *b = new QToolButton(parent);
 	b->setText(text);
 	b->setToolTip(tip);
-	b->setMinimumWidth(28);
+	b->setAutoRaise(true);
+	b->setMinimumWidth(26);
 	return b;
 }
 
-static QWidget *Panel(const QString &title, QLabel **titleOut, QListWidget *list, QHBoxLayout *buttons, QWidget *parent)
+/* Contenu d'un dock : liste + barre de boutons en bas, comme dans OBS. */
+static QWidget *ListPanel(QListWidget *list, QHBoxLayout *buttons, QWidget *parent)
 {
 	auto *panel = new QWidget(parent);
 	auto *layout = new QVBoxLayout(panel);
-	layout->setContentsMargins(4, 4, 4, 4);
-	layout->setSpacing(2);
-	auto *label = new QLabel(title, panel);
-	label->setStyleSheet("QLabel { font-weight: bold; }");
-	if (titleOut)
-		*titleOut = label;
-	layout->addWidget(label);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
 	layout->addWidget(list, 1);
+	buttons->setContentsMargins(2, 2, 2, 2);
+	buttons->setSpacing(2);
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 	return panel;
+}
+
+static QDockWidget *Dock(const QString &title, const char *objectName, QWidget *content, QWidget *parent)
+{
+	auto *dock = new QDockWidget(title, parent);
+	dock->setObjectName(objectName);
+	dock->setWidget(content);
+	dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable |
+			  QDockWidget::DockWidgetClosable);
+	return dock;
 }
 
 /* ------------------------------------------------------------------ */
 /* Construction                                                         */
 /* ------------------------------------------------------------------ */
 
-StudioWindow::StudioWindow(QWidget *parent) : QWidget(parent, Qt::Window)
+StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 {
-	setWindowTitle(T("Destinations.StudioTitle"));
-	BuildUi();
+	setWindowTitle("Multidestination Studio");
+	setDockNestingEnabled(true);
+
+	BuildCentral();
+	BuildDocks();
+	BuildMenus();
 
 	Manager &m = Manager::Get();
 	connect(&m, &Manager::previewChanged, this, &StudioWindow::RebuildGrids);
@@ -89,17 +108,13 @@ StudioWindow::StudioWindow(QWidget *parent) : QWidget(parent, Qt::Window)
 		RefreshScenes();
 		RebuildGrids();
 	});
-	connect(&m, &Manager::destinationsChanged, this, [this]() {
-		RefreshDestinations();
-		UpdateGrids(true);
-	});
+	connect(&m, &Manager::destinationsChanged, this, [this]() { UpdateGrids(true); });
 	connect(&m, &Manager::programChanged, this, &StudioWindow::RefreshTally);
 	connect(&m, &Manager::aboutToReset, this, &StudioWindow::OnReset);
 	connect(&m, &Manager::loaded, this, [this]() {
-		followObs->setChecked(Manager::Get().FollowObs());
-		RefreshDestinations();
 		RefreshScenes();
-		RebuildGrids();
+		RefreshTransitions();
+		UpdateGrids(true);
 	});
 	connect(&m, &Manager::aboutToRemove, this, [this](Destination *dest) {
 		CloseProjectors(dest);
@@ -108,14 +123,14 @@ StudioWindow::StudioWindow(QWidget *parent) : QWidget(parent, Qt::Window)
 		pvwGrid->Clear();
 		pgmGrid->Clear();
 	});
-	connect(&m, &Manager::sceneCreatedInObs, this, [this](OBSSource scene) { AskCoverage(scene); });
 
-	/* Les changements faits ailleurs (OBS, transitions en cours) se voient
-	 * dans les en-têtes sans attendre d'événement. */
+	/* Changements faits ailleurs (OBS, transitions en cours, stream). */
 	auto *timer = new QTimer(this);
 	connect(timer, &QTimer::timeout, this, [this]() {
-		if (isVisible())
-			RefreshTally();
+		if (!isVisible())
+			return;
+		RefreshTally();
+		UpdateControls();
 	});
 	timer->start(500);
 }
@@ -125,84 +140,53 @@ StudioWindow::~StudioWindow()
 	Shutdown();
 }
 
-void StudioWindow::BuildUi()
+void StudioWindow::BuildCentral()
 {
-	auto *root = new QVBoxLayout(this);
-	root->setContentsMargins(6, 6, 6, 6);
-	root->setSpacing(4);
+	monitors = new QWidget(this);
+	auto *layout = new QHBoxLayout(monitors);
+	layout->setContentsMargins(4, 4, 4, 4);
+	layout->setSpacing(6);
 
-	/* --- Barre du haut --- */
-	auto *top = new QHBoxLayout();
-	auto *title = new QLabel(T("Destinations.StudioTitle"), this);
-	title->setStyleSheet("QLabel { font-weight: bold; font-size: 14px; }");
-	top->addWidget(title);
-	top->addStretch(1);
-	followObs = new QCheckBox(T("Destinations.FollowObs"), this);
-	followObs->setToolTip(T("Destinations.FollowObsTip"));
-	followObs->setChecked(Manager::Get().FollowObs());
-	connect(followObs, &QCheckBox::toggled, this, [](bool on) { Manager::Get().SetFollowObs(on); });
-	top->addWidget(followObs);
-	auto *quit = new QPushButton(T("Destinations.ExitStudio"), this);
-	connect(quit, &QPushButton::clicked, this, &StudioWindow::Close);
-	top->addWidget(quit);
-	root->addLayout(top);
-
-	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
-	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
-
-	/* --- Moniteurs --- */
-	auto *vsplit = new QSplitter(Qt::Vertical, this);
-
-	auto *monitors = new QWidget(vsplit);
-	auto *monLayout = new QHBoxLayout(monitors);
-	monLayout->setContentsMargins(0, 0, 0, 0);
-
-	auto makeColumn = [monitors](const QString &label, const QColor &color, TileGrid *grid) {
+	auto makeColumn = [this](const QString &label, TileGrid *grid) {
 		auto *col = new QWidget(monitors);
 		auto *l = new QVBoxLayout(col);
 		l->setContentsMargins(0, 0, 0, 0);
 		l->setSpacing(2);
-		auto *t = new QLabel(label, col);
-		t->setAlignment(Qt::AlignCenter);
-		t->setStyleSheet(QString("QLabel { color: white; font-weight: bold; background: %1; padding: 2px; }")
-					 .arg(color.name()));
-		l->addWidget(t);
 		grid->setParent(col);
 		l->addWidget(grid, 1);
+		auto *t = new QLabel(label, col);
+		t->setAlignment(Qt::AlignCenter);
+		l->addWidget(t);
 		return col;
 	};
 
 	pvwGrid = new TileGrid(false, monitors);
 	pgmGrid = new TileGrid(true, monitors);
-	monLayout->addWidget(makeColumn("PREVIEW", PREVIEW_COLOR, pvwGrid), 1);
+	layout->addWidget(makeColumn(Tr("MDS.Preview"), pvwGrid), 1);
 
+	/* Boutons de transition entre Preview et Program, comme le mode
+	 * Studio d'OBS. */
 	auto *controls = new QVBoxLayout();
 	controls->addStretch(1);
-	auto *take = new QPushButton(T("Destinations.Take"), monitors);
-	take->setMinimumSize(90, 48);
-	take->setStyleSheet("QPushButton { font-weight: bold; }");
-	take->setToolTip(T("Destinations.TakeTip"));
-	connect(take, &QPushButton::clicked, this, []() { Manager::Get().Take(false); });
-	controls->addWidget(take);
-	auto *cut = new QPushButton("CUT", monitors);
-	cut->setMinimumSize(90, 32);
+	auto *transition = new QPushButton(Tr("MDS.Transition"), monitors);
+	transition->setToolTip(Tr("MDS.TransitionTip"));
+	connect(transition, &QPushButton::clicked, this, []() { Manager::Get().Take(false); });
+	controls->addWidget(transition);
+	auto *cut = new QPushButton(Tr("MDS.Cut"), monitors);
+	cut->setToolTip(Tr("MDS.CutTip"));
 	connect(cut, &QPushButton::clicked, this, []() { Manager::Get().Take(true); });
 	controls->addWidget(cut);
-	auto *note = new QLabel(T("Destinations.TransitionNote"), monitors);
-	note->setWordWrap(true);
-	note->setMaximumWidth(110);
-	note->setStyleSheet("QLabel { font-size: 10px; }");
-	controls->addWidget(note);
 	controls->addStretch(1);
-	monLayout->addLayout(controls);
+	layout->addLayout(controls);
 
-	monLayout->addWidget(makeColumn("PROGRAM", PROGRAM_COLOR, pgmGrid), 1);
-	vsplit->addWidget(monitors);
+	layout->addWidget(makeColumn(Tr("MDS.Program"), pgmGrid), 1);
+	setCentralWidget(monitors);
+}
 
-	/* --- Listes --- */
-	auto *bottom = new QSplitter(Qt::Horizontal, vsplit);
-
-	sceneList = new QListWidget(bottom);
+void StudioWindow::BuildDocks()
+{
+	/* --- Scènes --- */
+	sceneList = new QListWidget(this);
 	connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
 		OBSSource scene = SelectedScene();
 		if (scene)
@@ -212,28 +196,31 @@ void StudioWindow::BuildUi()
 	connect(sceneList, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
 		OBSSource scene = SelectedScene();
 		QMenu menu(this);
-		connect(menu.addAction(T("Destinations.AddScene")), &QAction::triggered, this, &StudioWindow::AddScene);
+		connect(menu.addAction(Tr("MDS.AddScene")), &QAction::triggered, this, &StudioWindow::AddScene);
 		if (scene) {
-			connect(menu.addAction(T("Destinations.SceneProperties")), &QAction::triggered, this,
+			connect(menu.addAction(Tr("MDS.SceneSettingsMenu")), &QAction::triggered, this,
 				[this, scene]() { EditScene(scene); });
-			connect(menu.addAction(T("Destinations.RemoveScene")), &QAction::triggered, this,
+			menu.addSeparator();
+			connect(menu.addAction(Tr("MDS.RemoveScene")), &QAction::triggered, this,
 				[this, scene]() { RemoveScene(scene); });
 		}
 		menu.exec(sceneList->viewport()->mapToGlobal(pos));
 	});
+	connect(sceneList, &QListWidget::itemDoubleClicked, this, [this]() { EditScene(SelectedScene()); });
 	auto *sceneButtons = new QHBoxLayout();
-	auto *addScene = SmallButton("+", T("Destinations.AddScene"), bottom);
-	auto *removeScene = SmallButton("−", T("Destinations.RemoveScene"), bottom);
-	auto *editScene = SmallButton("⚙", T("Destinations.SceneProperties"), bottom);
+	auto *addScene = ToolButton("+", Tr("MDS.AddScene"), this);
+	auto *removeScene = ToolButton("−", Tr("MDS.RemoveScene"), this);
+	auto *editScene = ToolButton("⚙", Tr("MDS.SceneSettingsMenu"), this);
 	connect(addScene, &QToolButton::clicked, this, &StudioWindow::AddScene);
 	connect(removeScene, &QToolButton::clicked, this, [this]() { RemoveScene(SelectedScene()); });
 	connect(editScene, &QToolButton::clicked, this, [this]() { EditScene(SelectedScene()); });
 	sceneButtons->addWidget(addScene);
 	sceneButtons->addWidget(removeScene);
 	sceneButtons->addWidget(editScene);
-	bottom->addWidget(Panel(T("Destinations.Scenes"), nullptr, sceneList, sceneButtons, bottom));
+	auto *scenesDock = Dock(Tr("MDS.Scenes"), "mdsScenesDock", ListPanel(sceneList, sceneButtons, this), this);
 
-	sourceList = new QListWidget(bottom);
+	/* --- Sources --- */
+	sourceList = new QListWidget(this);
 	connect(sourceList, &QListWidget::itemSelectionChanged, this, [this]() {
 		if (refreshingSources)
 			return;
@@ -253,55 +240,192 @@ void StudioWindow::BuildUi()
 		if (item)
 			obs_sceneitem_set_visible(item, row->checkState() == Qt::Checked);
 	});
-	connect(sourceList, &QListWidget::itemDoubleClicked, this, [this]() { OpenSelectedSourceProperties(false); });
+	connect(sourceList, &QListWidget::itemDoubleClicked, this, &StudioWindow::EditProperties);
+	sourceList->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(sourceList, &QListWidget::customContextMenuRequested, this,
+		[this](const QPoint &pos) { ShowItemMenu(sourceList->viewport()->mapToGlobal(pos)); });
+
 	auto *sourceButtons = new QHBoxLayout();
-	addSourceButton = SmallButton("+", T("Destinations.AddSource"), bottom);
+	addSourceButton = ToolButton("+", Tr("MDS.AddSource"), this);
 	addSourceButton->setPopupMode(QToolButton::InstantPopup);
 	auto *sourceMenu = new QMenu(addSourceButton);
 	addSourceButton->setMenu(sourceMenu);
-	connect(sourceMenu, &QMenu::aboutToShow, this, &StudioWindow::FillAddSourceMenu);
-	auto *removeSource = SmallButton("−", T("Destinations.RemoveFromScene"), bottom);
-	auto *upSource = SmallButton("↑", T("Destinations.MoveUp"), bottom);
-	auto *downSource = SmallButton("↓", T("Destinations.MoveDown"), bottom);
-	auto *propSource = SmallButton("⚙", T("Destinations.Properties"), bottom);
-	auto *filterSource = SmallButton("FX", T("Destinations.Filters"), bottom);
-	connect(removeSource, &QToolButton::clicked, this, &StudioWindow::RemoveSelectedSource);
-	connect(upSource, &QToolButton::clicked, this, [this]() { MoveSelectedSource(OBS_ORDER_MOVE_UP); });
-	connect(downSource, &QToolButton::clicked, this, [this]() { MoveSelectedSource(OBS_ORDER_MOVE_DOWN); });
-	connect(propSource, &QToolButton::clicked, this, [this]() { OpenSelectedSourceProperties(false); });
-	connect(filterSource, &QToolButton::clicked, this, [this]() { OpenSelectedSourceProperties(true); });
+	connect(sourceMenu, &QMenu::aboutToShow, this, [this, sourceMenu]() { FillAddSourceMenu(sourceMenu); });
+	auto *removeSource = ToolButton("−", Tr("MDS.RemoveSource"), this);
+	auto *propSource = ToolButton("⚙", Tr("MDS.Properties"), this);
+	auto *upSource = ToolButton("↑", Tr("MDS.MoveUp"), this);
+	auto *downSource = ToolButton("↓", Tr("MDS.MoveDown"), this);
+	connect(removeSource, &QToolButton::clicked, this, &StudioWindow::EditRemove);
+	connect(propSource, &QToolButton::clicked, this, &StudioWindow::EditProperties);
+	connect(upSource, &QToolButton::clicked, this, &StudioWindow::EditMoveUp);
+	connect(downSource, &QToolButton::clicked, this, &StudioWindow::EditMoveDown);
 	sourceButtons->addWidget(addSourceButton);
 	sourceButtons->addWidget(removeSource);
+	sourceButtons->addWidget(propSource);
 	sourceButtons->addWidget(upSource);
 	sourceButtons->addWidget(downSource);
-	sourceButtons->addWidget(propSource);
-	sourceButtons->addWidget(filterSource);
-	bottom->addWidget(Panel(T("Destinations.Sources"), &sourcesTitle, sourceList, sourceButtons, bottom));
+	auto *sourcesDock = Dock(Tr("MDS.Sources"), "mdsSourcesDock", ListPanel(sourceList, sourceButtons, this), this);
 
-	destList = new QListWidget(bottom);
-	connect(destList, &QListWidget::itemDoubleClicked, this, [this]() { EditDestination(SelectedDestination()); });
-	auto *destButtons = new QHBoxLayout();
-	auto *addDest = SmallButton("+", T("Destinations.AddDestination"), bottom);
-	auto *removeDest = SmallButton("−", T("Destinations.RemoveDestination"), bottom);
-	auto *editDest = SmallButton("⚙", T("Destinations.DestinationSettings"), bottom);
-	projectorButton = SmallButton(T("Destinations.Projector"), T("Destinations.Projector"), bottom);
-	projectorButton->setPopupMode(QToolButton::InstantPopup);
-	auto *projectorMenu = new QMenu(projectorButton);
-	projectorButton->setMenu(projectorMenu);
-	connect(projectorMenu, &QMenu::aboutToShow, this, &StudioWindow::FillProjectorMenu);
-	connect(addDest, &QToolButton::clicked, this, &StudioWindow::AddDestination);
-	connect(removeDest, &QToolButton::clicked, this, [this]() { RemoveDestination(SelectedDestination()); });
-	connect(editDest, &QToolButton::clicked, this, [this]() { EditDestination(SelectedDestination()); });
-	destButtons->addWidget(addDest);
-	destButtons->addWidget(removeDest);
-	destButtons->addWidget(editDest);
-	destButtons->addWidget(projectorButton);
-	bottom->addWidget(Panel(T("Destinations.DestinationsTitle"), nullptr, destList, destButtons, bottom));
+	/* --- Mixeur audio --- */
+	mixer = new AudioMixer(this);
+	auto *mixerDock = Dock(Tr("MDS.AudioMixer"), "mdsMixerDock", mixer, this);
 
-	vsplit->addWidget(bottom);
-	vsplit->setStretchFactor(0, 4);
-	vsplit->setStretchFactor(1, 1);
-	root->addWidget(vsplit, 1);
+	/* --- Transitions de scène --- */
+	auto *transitions = new QWidget(this);
+	auto *tl = new QVBoxLayout(transitions);
+	tl->setContentsMargins(4, 4, 4, 4);
+	auto *row = new QHBoxLayout();
+	transitionCombo = new QComboBox(transitions);
+	connect(transitionCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+		if (refreshingTransitions || index < 0)
+			return;
+		/* Les transitions d'OBS sont privées : on les retrouve dans la
+		 * liste du frontend. */
+		struct obs_frontend_source_list list = {};
+		obs_frontend_get_transitions(&list);
+		const QString wanted = transitionCombo->itemData(index).toString();
+		for (size_t i = 0; i < list.sources.num; i++) {
+			if (wanted == QString::fromUtf8(obs_source_get_uuid(list.sources.array[i])))
+				obs_frontend_set_current_transition(list.sources.array[i]);
+		}
+		obs_frontend_source_list_free(&list);
+		RefreshTransitions();
+	});
+	row->addWidget(transitionCombo, 1);
+	auto *transitionProps = ToolButton("⚙", Tr("MDS.TransitionProperties"), transitions);
+	connect(transitionProps, &QToolButton::clicked, this, []() {
+		OBSSourceAutoRelease current = obs_frontend_get_current_transition();
+		if (current)
+			obs_frontend_open_source_properties(current);
+	});
+	row->addWidget(transitionProps);
+	tl->addLayout(row);
+	auto *durationRow = new QHBoxLayout();
+	durationRow->addWidget(new QLabel(Tr("MDS.Duration"), transitions));
+	durationSpin = new QSpinBox(transitions);
+	durationSpin->setRange(50, 20000);
+	durationSpin->setSingleStep(50);
+	durationSpin->setSuffix(" ms");
+	connect(durationSpin, &QSpinBox::valueChanged, this, [this](int value) {
+		if (!refreshingTransitions)
+			obs_frontend_set_transition_duration(value);
+	});
+	durationRow->addWidget(durationSpin, 1);
+	tl->addLayout(durationRow);
+	auto *transitionNote = new QLabel(Tr("MDS.TransitionNote"), transitions);
+	transitionNote->setWordWrap(true);
+	tl->addWidget(transitionNote);
+	tl->addStretch(1);
+	auto *transitionsDock = Dock(Tr("MDS.SceneTransitions"), "mdsTransitionsDock", transitions, this);
+
+	/* --- Commandes --- */
+	auto *controls = new QWidget(this);
+	auto *cl = new QVBoxLayout(controls);
+	cl->setContentsMargins(4, 4, 4, 4);
+	streamButton = new QPushButton(controls);
+	connect(streamButton, &QPushButton::clicked, this, [this]() {
+		if (obs_frontend_streaming_active())
+			obs_frontend_streaming_stop();
+		else
+			obs_frontend_streaming_start();
+		QTimer::singleShot(300, this, &StudioWindow::UpdateControls);
+	});
+	cl->addWidget(streamButton);
+	recordButton = new QPushButton(controls);
+	connect(recordButton, &QPushButton::clicked, this, [this]() {
+		if (obs_frontend_recording_active())
+			obs_frontend_recording_stop();
+		else
+			obs_frontend_recording_start();
+		QTimer::singleShot(300, this, &StudioWindow::UpdateControls);
+	});
+	cl->addWidget(recordButton);
+	auto *exit = new QPushButton(Tr("MDS.ExitStudio"), controls);
+	connect(exit, &QPushButton::clicked, this, &StudioWindow::Close);
+	cl->addWidget(exit);
+	cl->addStretch(1);
+	auto *controlsDock = Dock(Tr("MDS.Controls"), "mdsControlsDock", controls, this);
+	UpdateControls();
+
+	/* Disposition par défaut d'OBS : docks côte à côte en bas. */
+	addDockWidget(Qt::BottomDockWidgetArea, scenesDock);
+	splitDockWidget(scenesDock, sourcesDock, Qt::Horizontal);
+	splitDockWidget(sourcesDock, mixerDock, Qt::Horizontal);
+	splitDockWidget(mixerDock, transitionsDock, Qt::Horizontal);
+	splitDockWidget(transitionsDock, controlsDock, Qt::Horizontal);
+	resizeDocks({scenesDock, sourcesDock, mixerDock, transitionsDock, controlsDock}, {200, 220, 320, 200, 180},
+		    Qt::Horizontal);
+	resizeDocks({scenesDock}, {240}, Qt::Vertical);
+}
+
+QAction *StudioWindow::MakeEditAction(const QString &text, const QList<QKeySequence> &keys, void (StudioWindow::*fn)())
+{
+	auto *action = new QAction(text, this);
+	action->setShortcuts(keys);
+	/* Actifs quand le focus est dans les aperçus ou la liste des sources,
+	 * pour ne pas gêner la saisie dans les autres champs. */
+	action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+	connect(action, &QAction::triggered, this, fn);
+	monitors->addAction(action);
+	sourceList->addAction(action);
+	editActions.push_back(action);
+	return action;
+}
+
+void StudioWindow::BuildMenus()
+{
+	QMenuBar *bar = menuBar();
+
+	/* --- Fichier --- */
+	QMenu *file = bar->addMenu(Tr("MDS.MenuFile"));
+	connect(file->addAction(Tr("MDS.ExitStudio")), &QAction::triggered, this, &StudioWindow::Close);
+
+	/* --- Édition --- */
+	QMenu *edit = bar->addMenu(Tr("MDS.MenuEdit"));
+	edit->addAction(MakeEditAction(Tr("MDS.Copy"), {QKeySequence::Copy}, &StudioWindow::EditCopy));
+	edit->addAction(MakeEditAction(Tr("MDS.Paste"), {QKeySequence::Paste}, &StudioWindow::EditPaste));
+	edit->addAction(MakeEditAction(Tr("MDS.RemoveSource"),
+				       {QKeySequence(Qt::Key_Delete), QKeySequence(Qt::Key_Backspace)},
+				       &StudioWindow::EditRemove));
+	edit->addSeparator();
+	QMenu *transform = edit->addMenu(Tr("MDS.Transform"));
+	transform->addAction(MakeEditAction(Tr("MDS.CopyTransform"), {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C)},
+					    &StudioWindow::EditCopyTransform));
+	transform->addAction(MakeEditAction(Tr("MDS.PasteTransform"), {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V)},
+					    &StudioWindow::EditPasteTransform));
+	transform->addSeparator();
+	transform->addAction(MakeEditAction(Tr("MDS.ResetTransform"), {QKeySequence(Qt::CTRL | Qt::Key_R)},
+					    &StudioWindow::EditResetTransform));
+	transform->addAction(
+		MakeEditAction(Tr("MDS.FitToScreen"), {QKeySequence(Qt::CTRL | Qt::Key_F)}, &StudioWindow::EditFit));
+	transform->addAction(MakeEditAction(Tr("MDS.StretchToScreen"), {QKeySequence(Qt::CTRL | Qt::Key_S)},
+					    &StudioWindow::EditStretch));
+	transform->addAction(MakeEditAction(Tr("MDS.CenterToScreen"), {QKeySequence(Qt::CTRL | Qt::Key_D)},
+					    &StudioWindow::EditCenter));
+	QMenu *order = edit->addMenu(Tr("MDS.Order"));
+	order->addAction(
+		MakeEditAction(Tr("MDS.MoveUp"), {QKeySequence(Qt::CTRL | Qt::Key_Up)}, &StudioWindow::EditMoveUp));
+	order->addAction(MakeEditAction(Tr("MDS.MoveDown"), {QKeySequence(Qt::CTRL | Qt::Key_Down)},
+					&StudioWindow::EditMoveDown));
+	order->addAction(
+		MakeEditAction(Tr("MDS.MoveTop"), {QKeySequence(Qt::CTRL | Qt::Key_Home)}, &StudioWindow::EditMoveTop));
+	order->addAction(MakeEditAction(Tr("MDS.MoveBottom"), {QKeySequence(Qt::CTRL | Qt::Key_End)},
+					&StudioWindow::EditMoveBottom));
+	edit->addSeparator();
+	edit->addAction(MakeEditAction(Tr("MDS.Properties"), {}, &StudioWindow::EditProperties));
+	edit->addAction(MakeEditAction(Tr("MDS.Filters"), {}, &StudioWindow::EditFilters));
+
+	/* --- Destinations --- */
+	destinationsMenu = bar->addMenu(Tr("MDS.MenuDestinations"));
+	connect(destinationsMenu, &QMenu::aboutToShow, this, &StudioWindow::FillDestinationsMenu);
+
+	/* --- Affichage : afficher / masquer les docks --- */
+	viewMenu = bar->addMenu(Tr("MDS.MenuView"));
+	for (QDockWidget *dock : findChildren<QDockWidget *>())
+		viewMenu->addAction(dock->toggleViewAction());
+
+	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,8 +443,9 @@ void StudioWindow::Toggle()
 void StudioWindow::Open()
 {
 	Manager::Get().Sync();
-	RefreshDestinations();
 	RefreshScenes();
+	RefreshTransitions();
+	mixer->Refresh();
 
 	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
 	if (main && main->screen())
@@ -337,6 +462,7 @@ void StudioWindow::Close()
 	pvwGrid->Clear();
 	pgmGrid->Clear();
 	UpdateShowing({});
+	mixer->Clear();
 	hide();
 }
 
@@ -357,28 +483,48 @@ void StudioWindow::Shutdown()
 		pvwGrid->Clear();
 	if (pgmGrid)
 		pgmGrid->Clear();
+	if (mixer)
+		mixer->Clear();
 	UpdateShowing({});
 }
 
 void StudioWindow::OnReset()
 {
 	for (auto &p : projectors) {
-		if (p.second && p.first && !p.first->IsMain())
+		if (p.second)
 			p.second->close();
 	}
+	projectors.clear();
 	pvwGrid->Clear();
 	pgmGrid->Clear();
+	mixer->Clear();
 	UpdateShowing({});
 	activeDest = nullptr;
 	const QSignalBlocker b1(sceneList);
 	const QSignalBlocker b2(sourceList);
 	sceneList->clear();
 	sourceList->clear();
-	destList->clear();
+}
+
+QByteArray StudioWindow::SaveLayout() const
+{
+	return saveState();
+}
+
+void StudioWindow::RestoreLayout(const QByteArray &state)
+{
+	if (!state.isEmpty())
+		restoreState(state);
+}
+
+void StudioWindow::UpdateControls()
+{
+	streamButton->setText(obs_frontend_streaming_active() ? Tr("MDS.StopStreaming") : Tr("MDS.StartStreaming"));
+	recordButton->setText(obs_frontend_recording_active() ? Tr("MDS.StopRecording") : Tr("MDS.StartRecording"));
 }
 
 /* ------------------------------------------------------------------ */
-/* Grilles                                                              */
+/* Aperçus                                                              */
 /* ------------------------------------------------------------------ */
 
 void StudioWindow::UpdateShowing(const std::vector<OBSSource> &next)
@@ -441,9 +587,7 @@ void StudioWindow::UpdateGrids(bool force)
 		activeStillHere |= d == activeDest;
 	SetActiveDestination(activeStillHere ? activeDest : (covered.empty() ? nullptr : covered.front()));
 	RefreshSources();
-
 	RefreshScenes();
-	RefreshTally();
 }
 
 void StudioWindow::ConnectTile(TileWidget *tile)
@@ -463,9 +607,8 @@ void StudioWindow::ConnectTile(TileWidget *tile)
 		if (t->Dest() == activeDest)
 			RefreshSources();
 	});
-	connect(tile, &TileWidget::takeRequested, this,
-		[](TileWidget *t) { Manager::Get().TakeOne(t->Dest(), false); });
-	connect(tile, &TileWidget::lockChanged, this, [this](TileWidget *) { RefreshDestinations(); });
+	connect(tile, &TileWidget::contextMenuRequested, this,
+		[this](TileWidget *, const QPoint &pos) { ShowItemMenu(pos); });
 }
 
 void StudioWindow::SetActiveDestination(Destination *dest)
@@ -476,7 +619,7 @@ void StudioWindow::SetActiveDestination(Destination *dest)
 		t->SetActive(t->Dest() == dest);
 	for (auto *t : pgmGrid->Tiles())
 		t->SetActive(t->Dest() == dest);
-	if (changed || sourceList->count() == 0)
+	if (changed)
 		RefreshSources();
 }
 
@@ -487,26 +630,16 @@ TileWidget *StudioWindow::ActivePreviewTile() const
 
 void StudioWindow::RefreshTally()
 {
-	Manager &m = Manager::Get();
 	for (auto *t : pgmGrid->Tiles())
 		t->RefreshHeader();
-	for (auto *t : pvwGrid->Tiles()) {
-		OBSSource linked = t->LinkedScene();
-		const char *n = linked ? obs_source_get_name(linked) : nullptr;
-		t->SetTally(n && t->Dest()->ProgramSceneName() == n);
-	}
 
-	OBSSource preview = m.PreviewScene();
-	OBSSource program = m.ProgramScene();
+	OBSSource program = Manager::Get().ProgramScene();
+	const char *pgmUuid = program ? obs_source_get_uuid(program) : nullptr;
 	for (int i = 0; i < sceneList->count(); i++) {
 		QListWidgetItem *row = sceneList->item(i);
-		const std::string uuid = row->data(Qt::UserRole).toString().toStdString();
-		const bool isPgm = program && uuid == obs_source_get_uuid(program);
-		const bool isPvw = preview && uuid == obs_source_get_uuid(preview);
 		QFont font = row->font();
-		font.setBold(isPgm || isPvw);
+		font.setBold(pgmUuid && row->data(Qt::UserRole).toString() == QString::fromUtf8(pgmUuid));
 		row->setFont(font);
-		row->setForeground(isPgm ? PROGRAM_COLOR : isPvw ? PREVIEW_COLOR : palette().color(QPalette::Text));
 	}
 }
 
@@ -531,7 +664,7 @@ void StudioWindow::RefreshScenes()
 			if (d->Covers(scene))
 				names << QString::fromStdString(d->Name());
 		}
-		row->setToolTip(T("Destinations.CoveredBy").arg(names.join(", ")));
+		row->setToolTip(Tr("MDS.ShownOn").arg(names.isEmpty() ? Tr("MDS.NoDestination") : names.join(", ")));
 		if (scene.Get() == preview.Get())
 			sceneList->setCurrentItem(row);
 	}
@@ -549,7 +682,7 @@ OBSSource StudioWindow::SelectedScene() const
 
 void StudioWindow::AddScene()
 {
-	std::string name = QString("%1 %2").arg(T("Destinations.Scene")).arg(sceneList->count() + 1).toStdString();
+	std::string name = QString("%1 %2").arg(Tr("MDS.Scene")).arg(sceneList->count() + 1).toStdString();
 	std::set<Destination *> coverage;
 	while (true) {
 		if (!Dialogs::EditScene(this, nullptr, name, coverage, true))
@@ -559,7 +692,7 @@ void StudioWindow::AddScene()
 			Manager::Get().SetPreviewScene(scene);
 			return;
 		}
-		QMessageBox::warning(this, T("Destinations.AddScene"), T("Destinations.SceneExists"));
+		QMessageBox::warning(this, Tr("MDS.NewScene"), Tr("MDS.SceneExists"));
 	}
 }
 
@@ -588,14 +721,13 @@ void StudioWindow::EditScene(obs_source_t *scene)
 	if (!Dialogs::EditScene(this, scene, name, coverage, false))
 		return;
 
-	/* Retirer une destination supprime sa version de la scène. */
-	std::vector<Destination *> dropped;
+	bool dropping = false;
 	for (auto *d : Manager::Get().Destinations()) {
 		if (!d->IsMain() && d->Covers(scene) && !coverage.count(d))
-			dropped.push_back(d);
+			dropping = true;
 	}
-	if (!dropped.empty() && QMessageBox::question(this, T("Destinations.SceneProperties"),
-						      T("Destinations.ConfirmUncover")) != QMessageBox::Yes)
+	if (dropping &&
+	    QMessageBox::question(this, Tr("MDS.SceneSettings"), Tr("MDS.ConfirmUncover")) != QMessageBox::Yes)
 		return;
 
 	Manager::Get().SetCoverage(scene, coverage);
@@ -608,14 +740,14 @@ void StudioWindow::RemoveScene(obs_source_t *scene)
 	if (!scene)
 		return;
 	const QString name = QString::fromUtf8(obs_source_get_name(scene));
-	if (QMessageBox::question(this, T("Destinations.RemoveScene"), T("Destinations.ConfirmRemove").arg(name)) !=
+	if (QMessageBox::question(this, Tr("MDS.RemoveScene"), Tr("MDS.ConfirmRemoveScene").arg(name)) !=
 	    QMessageBox::Yes)
 		return;
 	Manager::Get().RemoveScene(scene);
 }
 
 /* ------------------------------------------------------------------ */
-/* Sources de la destination active                                    */
+/* Sources                                                              */
 /* ------------------------------------------------------------------ */
 
 void StudioWindow::RefreshSources()
@@ -627,16 +759,17 @@ void StudioWindow::RefreshSources()
 	OBSSource scene = tile ? tile->LinkedScene() : OBSSource();
 	obs_scene_t *s = scene ? obs_scene_from_source(scene) : nullptr;
 
-	sourcesTitle->setText(activeDest ? T("Destinations.SourcesOf").arg(QString::fromStdString(activeDest->Name()))
-					 : T("Destinations.Sources"));
+	if (auto *dock = qobject_cast<QDockWidget *>(sourceList->parentWidget()->parentWidget())) {
+		dock->setWindowTitle(activeDest ? Tr("MDS.SourcesOf").arg(QString::fromStdString(activeDest->Name()))
+						: Tr("MDS.Sources"));
+	}
 	addSourceButton->setEnabled(s != nullptr);
 
 	if (s) {
-		const int64_t selected = tile->SelectedItem();
 		struct Ctx {
 			QListWidget *list;
 			int64_t selected;
-		} ctx{sourceList, selected};
+		} ctx{sourceList, tile->SelectedItem()};
 		obs_scene_enum_items(
 			s,
 			[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
@@ -657,42 +790,140 @@ void StudioWindow::RefreshSources()
 	refreshingSources = false;
 }
 
-void StudioWindow::FillAddSourceMenu()
+OBSSceneItem StudioWindow::CurrentItem() const
 {
-	QMenu *menu = addSourceButton->menu();
-	menu->clear();
+	TileWidget *tile = ActivePreviewTile();
+	OBSSource scene = tile ? tile->LinkedScene() : OBSSource();
+	obs_scene_t *s = scene ? obs_scene_from_source(scene) : nullptr;
+	if (!s)
+		return nullptr;
+	int64_t id = tile->SelectedItem();
+	if (id < 0 && sourceList->currentItem())
+		id = sourceList->currentItem()->data(Qt::UserRole).toLongLong();
+	return id >= 0 ? OBSSceneItem(obs_scene_find_sceneitem_by_id(s, id)) : OBSSceneItem();
+}
 
+void StudioWindow::SelectItem(int64_t id)
+{
+	if (TileWidget *t = ActivePreviewTile())
+		t->SetSelectedItem(id);
+	RefreshSources();
+}
+
+void StudioWindow::AddExistingSource(obs_source_t *source)
+{
+	TileWidget *tile = ActivePreviewTile();
+	OBSSource scene = tile ? tile->LinkedScene() : OBSSource();
+	obs_scene_t *s = scene ? obs_scene_from_source(scene) : nullptr;
+	if (!source || !s)
+		return;
+
+	obs_sceneitem_t *item = obs_scene_add(s, source);
+	if (!item)
+		return;
+	obs_sceneitem_set_alignment(item, OBS_ALIGN_TOP | OBS_ALIGN_LEFT);
+	SceneEditor::FitToCanvas(item, activeDest->Width(), activeDest->Height());
+
+	/* Source dont la taille n'est pas encore connue (réglages en cours) :
+	 * on l'ajuste au cadre dès qu'elle a une image. */
+	const int64_t id = obs_sceneitem_get_id(item);
+	if (obs_source_get_width(source) == 0) {
+		OBSWeakSource weakScene = OBSGetWeakRef(scene.Get());
+		Destination *dest = activeDest;
+		auto *timer = new QTimer(this);
+		auto tries = std::make_shared<int>(0);
+		connect(timer, &QTimer::timeout, this, [timer, weakScene, dest, id, tries]() {
+			OBSSource sc = OBSGetStrongRef(weakScene);
+			obs_scene_t *sp = sc ? obs_scene_from_source(sc) : nullptr;
+			obs_sceneitem_t *it = sp ? obs_scene_find_sceneitem_by_id(sp, id) : nullptr;
+			if (!it || ++(*tries) > 120) {
+				timer->deleteLater();
+				return;
+			}
+			if (obs_source_get_width(obs_sceneitem_get_source(it)) > 0) {
+				SceneEditor::FitToCanvas(it, dest->Width(), dest->Height());
+				timer->deleteLater();
+			}
+		});
+		timer->start(250);
+	}
+	SelectItem(id);
+}
+
+void StudioWindow::CreateNewSource(const char *typeId)
+{
+	if (!ActivePreviewTile() || !ActivePreviewTile()->LinkedScene())
+		return;
+
+	QString base = QString::fromUtf8(obs_source_get_display_name(typeId));
+	QString suggestion = base;
+	for (int i = 2;; i++) {
+		OBSSourceAutoRelease existing = obs_get_source_by_name(suggestion.toUtf8().constData());
+		if (!existing)
+			break;
+		suggestion = QString("%1 %2").arg(base).arg(i);
+	}
+
+	bool ok = false;
+	QString name = QInputDialog::getText(this, Tr("MDS.NewSourceTitle").arg(base), Tr("MDS.Name"),
+					     QLineEdit::Normal, suggestion, &ok)
+			       .trimmed();
+	if (!ok || name.isEmpty())
+		return;
+	OBSSourceAutoRelease existing = obs_get_source_by_name(name.toUtf8().constData());
+	if (existing) {
+		QMessageBox::warning(this, Tr("MDS.AddSource"), Tr("MDS.SourceExists"));
+		return;
+	}
+
+	OBSSourceAutoRelease source = obs_source_create(typeId, name.toUtf8().constData(), nullptr, nullptr);
+	if (!source)
+		return;
+	AddExistingSource(source);
+	obs_frontend_open_source_properties(source);
+}
+
+void StudioWindow::FillAddSourceMenu(QMenu *menu)
+{
+	menu->clear();
 	TileWidget *tile = ActivePreviewTile();
 	OBSSource scene = tile ? tile->LinkedScene() : OBSSource();
 	if (!scene) {
-		menu->addAction(T("Destinations.SelectSceneFirst"))->setEnabled(false);
+		menu->addAction(Tr("MDS.SelectSceneFirst"))->setEnabled(false);
 		return;
 	}
-	OBSWeakSource weakScene = OBSGetWeakRef(scene.Get());
-	Destination *dest = tile->Dest();
 
-	auto addEntry = [this, weakScene, dest](QMenu *target, obs_source_t *source) {
+	/* Nouveaux types de sources, comme le « + » d'OBS. */
+	std::vector<std::pair<QString, std::string>> types;
+	const char *id = nullptr;
+	for (size_t i = 0; obs_enum_input_types(i, &id); i++) {
+		const uint32_t flags = obs_get_source_output_flags(id);
+		if (flags & (OBS_SOURCE_CAP_DISABLED | OBS_SOURCE_DEPRECATED))
+			continue;
+		const char *display = obs_source_get_display_name(id);
+		if (display)
+			types.emplace_back(QString::fromUtf8(display), id);
+	}
+	std::sort(types.begin(), types.end(),
+		  [](const auto &a, const auto &b) { return a.first.localeAwareCompare(b.first) < 0; });
+	for (auto &[display, typeId] : types) {
+		std::string tid = typeId;
+		connect(menu->addAction(display), &QAction::triggered, this,
+			[this, tid]() { CreateNewSource(tid.c_str()); });
+	}
+	menu->addSeparator();
+
+	auto addEntry = [this](QMenu *target, obs_source_t *source) {
 		OBSWeakSource weak = OBSGetWeakRef(source);
-		QAction *action = target->addAction(QString::fromUtf8(obs_source_get_name(source)));
-		connect(action, &QAction::triggered, this, [this, weak, weakScene, dest]() {
-			OBSSource src = OBSGetStrongRef(weak);
-			OBSSource sc = OBSGetStrongRef(weakScene);
-			obs_scene_t *s = sc ? obs_scene_from_source(sc) : nullptr;
-			if (!src || !s)
-				return;
-			obs_sceneitem_t *item = obs_scene_add(s, src);
-			if (!item)
-				return;
-			obs_sceneitem_set_alignment(item, OBS_ALIGN_TOP | OBS_ALIGN_LEFT);
-			SceneEditor::FitToCanvas(item, dest->Width(), dest->Height());
-			if (TileWidget *t = ActivePreviewTile())
-				t->SetSelectedItem(obs_sceneitem_get_id(item));
-			RefreshSources();
-		});
+		connect(target->addAction(QString::fromUtf8(obs_source_get_name(source))), &QAction::triggered, this,
+			[this, weak]() {
+				OBSSource src = OBSGetStrongRef(weak);
+				AddExistingSource(src);
+			});
 	};
 
-	QMenu *inputs = menu->addMenu(T("Destinations.Inputs"));
-	std::vector<OBSSource> list;
+	QMenu *existing = menu->addMenu(Tr("MDS.ExistingSource"));
+	std::vector<OBSSource> inputs;
 	obs_enum_sources(
 		[](void *param, obs_source_t *source) {
 			auto *l = static_cast<std::vector<OBSSource> *>(param);
@@ -701,13 +932,13 @@ void StudioWindow::FillAddSourceMenu()
 				l->emplace_back(source);
 			return true;
 		},
-		&list);
-	for (auto &s : list)
-		addEntry(inputs, s);
-	if (list.empty())
-		inputs->addAction(T("Destinations.None"))->setEnabled(false);
+		&inputs);
+	for (auto &s : inputs)
+		addEntry(existing, s);
+	if (inputs.empty())
+		existing->addAction(Tr("MDS.None"))->setEnabled(false);
 
-	QMenu *scenes = menu->addMenu(T("Destinations.MainScenes"));
+	QMenu *scenes = menu->addMenu(Tr("MDS.SceneAsSource"));
 	OBSSource preview = Manager::Get().PreviewScene();
 	int added = 0;
 	for (auto &s : Manager::MainScenes()) {
@@ -718,101 +949,238 @@ void StudioWindow::FillAddSourceMenu()
 		added++;
 	}
 	if (added == 0)
-		scenes->addAction(T("Destinations.None"))->setEnabled(false);
-
-	menu->addSeparator();
-	menu->addAction(T("Destinations.NewSourceHint"))->setEnabled(false);
+		scenes->addAction(Tr("MDS.None"))->setEnabled(false);
 }
 
-static OBSSceneItem SelectedItemIn(TileWidget *tile, QListWidget *list)
+void StudioWindow::ShowItemMenu(const QPoint &globalPos)
 {
-	QListWidgetItem *row = list->currentItem();
+	OBSSceneItem item = CurrentItem();
+	QMenu menu(this);
+
+	if (item) {
+		QAction *visible = menu.addAction(Tr("MDS.Visible"));
+		visible->setCheckable(true);
+		visible->setChecked(obs_sceneitem_visible(item));
+		obs_sceneitem_t *it = item;
+		connect(visible, &QAction::toggled, this, [this, it](bool on) {
+			obs_sceneitem_set_visible(it, on);
+			RefreshSources();
+		});
+		menu.addSeparator();
+	}
+	for (QAction *a : editActions) {
+		a->setEnabled(item || a->text() == Tr("MDS.Paste"));
+		menu.addAction(a);
+	}
+	menu.exec(globalPos);
+	for (QAction *a : editActions)
+		a->setEnabled(true);
+}
+
+/* ------------------------------------------------------------------ */
+/* Édition                                                              */
+/* ------------------------------------------------------------------ */
+
+void StudioWindow::EditCopy()
+{
+	OBSSceneItem item = CurrentItem();
+	if (!item)
+		return;
+	clipboardSource = OBSGetWeakRef(obs_sceneitem_get_source(item));
+	clipboardTransform = SceneEditor::GetTransform(item);
+	hasClipboardTransform = true;
+}
+
+void StudioWindow::EditPaste()
+{
+	OBSSource source = OBSGetStrongRef(clipboardSource);
+	TileWidget *tile = ActivePreviewTile();
 	OBSSource scene = tile ? tile->LinkedScene() : OBSSource();
 	obs_scene_t *s = scene ? obs_scene_from_source(scene) : nullptr;
-	if (!row || !s)
-		return nullptr;
-	return obs_scene_find_sceneitem_by_id(s, row->data(Qt::UserRole).toLongLong());
+	if (!source || !s || source.Get() == scene.Get())
+		return;
+
+	obs_sceneitem_t *item = obs_scene_add(s, source);
+	if (!item)
+		return;
+	if (hasClipboardTransform)
+		SceneEditor::SetTransform(item, clipboardTransform);
+	SelectItem(obs_sceneitem_get_id(item));
 }
 
-void StudioWindow::RemoveSelectedSource()
+void StudioWindow::EditRemove()
 {
-	TileWidget *tile = ActivePreviewTile();
-	OBSSceneItem item = SelectedItemIn(tile, sourceList);
+	OBSSceneItem item = CurrentItem();
 	if (!item)
 		return;
 	obs_sceneitem_remove(item);
-	tile->SetSelectedItem(-1);
+	SelectItem(-1);
+}
+
+void StudioWindow::EditCopyTransform()
+{
+	OBSSceneItem item = CurrentItem();
+	if (!item)
+		return;
+	copiedTransform = SceneEditor::GetTransform(item);
+	hasCopiedTransform = true;
+}
+
+void StudioWindow::EditPasteTransform()
+{
+	OBSSceneItem item = CurrentItem();
+	if (item && hasCopiedTransform)
+		SceneEditor::SetTransform(item, copiedTransform);
+}
+
+void StudioWindow::EditResetTransform()
+{
+	if (OBSSceneItem item = CurrentItem())
+		SceneEditor::ResetTransform(item);
+}
+
+void StudioWindow::EditFit()
+{
+	if (OBSSceneItem item = CurrentItem())
+		SceneEditor::FitToCanvas(item, activeDest->Width(), activeDest->Height());
+}
+
+void StudioWindow::EditStretch()
+{
+	if (OBSSceneItem item = CurrentItem())
+		SceneEditor::StretchToCanvas(item, activeDest->Width(), activeDest->Height());
+}
+
+void StudioWindow::EditCenter()
+{
+	if (OBSSceneItem item = CurrentItem())
+		SceneEditor::CenterInCanvas(item, activeDest->Width(), activeDest->Height());
+}
+
+static void Reorder(OBSSceneItem item, enum obs_order_movement movement)
+{
+	if (item)
+		obs_sceneitem_set_order(item, movement);
+}
+
+void StudioWindow::EditMoveUp()
+{
+	Reorder(CurrentItem(), OBS_ORDER_MOVE_UP);
 	RefreshSources();
 }
 
-void StudioWindow::MoveSelectedSource(enum obs_order_movement movement)
+void StudioWindow::EditMoveDown()
 {
-	OBSSceneItem item = SelectedItemIn(ActivePreviewTile(), sourceList);
-	if (!item)
-		return;
-	obs_sceneitem_set_order(item, movement);
+	Reorder(CurrentItem(), OBS_ORDER_MOVE_DOWN);
 	RefreshSources();
 }
 
-void StudioWindow::OpenSelectedSourceProperties(bool filters)
+void StudioWindow::EditMoveTop()
 {
-	OBSSceneItem item = SelectedItemIn(ActivePreviewTile(), sourceList);
-	if (!item)
-		return;
-	obs_source_t *src = obs_sceneitem_get_source(item);
-	if (filters)
-		obs_frontend_open_source_filters(src);
-	else
-		obs_frontend_open_source_properties(src);
+	Reorder(CurrentItem(), OBS_ORDER_MOVE_TOP);
+	RefreshSources();
+}
+
+void StudioWindow::EditMoveBottom()
+{
+	Reorder(CurrentItem(), OBS_ORDER_MOVE_BOTTOM);
+	RefreshSources();
+}
+
+void StudioWindow::EditProperties()
+{
+	if (OBSSceneItem item = CurrentItem())
+		obs_frontend_open_source_properties(obs_sceneitem_get_source(item));
+}
+
+void StudioWindow::EditFilters()
+{
+	if (OBSSceneItem item = CurrentItem())
+		obs_frontend_open_source_filters(obs_sceneitem_get_source(item));
+}
+
+/* ------------------------------------------------------------------ */
+/* Transitions                                                          */
+/* ------------------------------------------------------------------ */
+
+void StudioWindow::RefreshTransitions()
+{
+	refreshingTransitions = true;
+	transitionCombo->clear();
+
+	OBSSourceAutoRelease current = obs_frontend_get_current_transition();
+	struct obs_frontend_source_list list = {};
+	obs_frontend_get_transitions(&list);
+	for (size_t i = 0; i < list.sources.num; i++) {
+		obs_source_t *tr = list.sources.array[i];
+		transitionCombo->addItem(QString::fromUtf8(obs_source_get_name(tr)),
+					 QString::fromUtf8(obs_source_get_uuid(tr)));
+		if (tr == current.Get())
+			transitionCombo->setCurrentIndex(transitionCombo->count() - 1);
+	}
+	obs_frontend_source_list_free(&list);
+
+	durationSpin->setValue(obs_frontend_get_transition_duration());
+	durationSpin->setEnabled(current && !obs_transition_fixed(current));
+	refreshingTransitions = false;
 }
 
 /* ------------------------------------------------------------------ */
 /* Destinations                                                         */
 /* ------------------------------------------------------------------ */
 
-void StudioWindow::RefreshDestinations()
+void StudioWindow::FillDestinationsMenu()
 {
-	Destination *selected = SelectedDestination();
-	destList->clear();
+	destinationsMenu->clear();
+
 	for (auto *d : Manager::Get().Destinations()) {
-		QString text =
-			QString("%1  ·  %2×%3").arg(QString::fromStdString(d->Name())).arg(d->Width()).arg(d->Height());
-		if (d->Locked())
-			text += "  —  " + T("Destinations.Locked");
-		auto *row = new QListWidgetItem(text, destList);
-		row->setData(Qt::UserRole, QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(d)));
-		if (d == selected)
-			destList->setCurrentItem(row);
+		QMenu *sub = destinationsMenu->addMenu(
+			QString("%1  (%2×%3)").arg(QString::fromStdString(d->Name())).arg(d->Width()).arg(d->Height()));
+
+		connect(sub->addAction(Tr("MDS.DestinationSettings")), &QAction::triggered, this,
+			[this, d]() { EditDestination(d); });
+		sub->addSeparator();
+
+		QScreen *screen = Dialogs::FindScreen(d->OutputScreen());
+		QAction *full = sub->addAction(screen ? Tr("MDS.OpenFullscreenOn").arg(screen->name())
+						      : Tr("MDS.OpenFullscreen"));
+		full->setEnabled(screen != nullptr);
+		if (!screen)
+			full->setToolTip(Tr("MDS.NoScreenHint"));
+		connect(full, &QAction::triggered, this, [this, d]() { OpenProjector(d, true); });
+
+		connect(sub->addAction(Tr("MDS.OpenWindowed")), &QAction::triggered, this,
+			[this, d]() { OpenProjector(d, false); });
+
+		QAction *close = sub->addAction(Tr("MDS.CloseProjection"));
+		close->setEnabled(HasProjector(d));
+		connect(close, &QAction::triggered, this, [this, d]() { CloseProjectors(d); });
+
+		sub->addSeparator();
+		QAction *del = sub->addAction(Tr("MDS.Delete"));
+		del->setEnabled(!d->IsMain());
+		connect(del, &QAction::triggered, this, [this, d]() { DeleteDestination(d); });
 	}
+
+	destinationsMenu->addSeparator();
+	connect(destinationsMenu->addAction(Tr("MDS.NewDestinationMenu")), &QAction::triggered, this,
+		&StudioWindow::NewDestination);
 }
 
-Destination *StudioWindow::SelectedDestination() const
-{
-	QListWidgetItem *row = destList->currentItem();
-	if (!row)
-		return nullptr;
-	auto *ptr = reinterpret_cast<Destination *>(row->data(Qt::UserRole).value<quintptr>());
-	for (auto *d : Manager::Get().Destinations()) {
-		if (d == ptr)
-			return d;
-	}
-	return nullptr;
-}
-
-void StudioWindow::AddDestination()
+void StudioWindow::NewDestination()
 {
 	Dialogs::DestinationSettings settings;
-	settings.name = QString("%1 %2").arg(T("Destinations.Destination")).arg(destList->count()).toStdString();
+	settings.name =
+		QString("%1 %2").arg(Tr("MDS.Destination")).arg(Manager::Get().Destinations().size()).toStdString();
 	if (!Dialogs::EditDestination(this, nullptr, settings))
 		return;
 
-	Destination *dest = Manager::Get().Add(settings.name, settings.width, settings.height, settings.coverAll);
+	Destination *dest = Manager::Get().Add(settings.name, settings.width, settings.height);
 	if (!dest) {
-		QMessageBox::warning(this, T("Destinations.AddDestination"), T("Destinations.AddFailed"));
+		QMessageBox::warning(this, Tr("MDS.NewDestination"), Tr("MDS.AddFailed"));
 		return;
 	}
-	dest->SetTransitionType(settings.transition);
-	dest->SetTransitionDuration(settings.duration);
+	dest->SetOutputScreen(settings.outputScreen);
 }
 
 void StudioWindow::EditDestination(Destination *dest)
@@ -823,73 +1191,48 @@ void StudioWindow::EditDestination(Destination *dest)
 	settings.name = dest->Name();
 	settings.width = dest->Width();
 	settings.height = dest->Height();
-	settings.transition = dest->TransitionType();
-	settings.duration = dest->TransitionDuration();
+	settings.outputScreen = dest->OutputScreen();
 	if (!Dialogs::EditDestination(this, dest, settings))
 		return;
 
-	dest->SetName(settings.name);
-	dest->Attach(settings.width, settings.height);
-	dest->SetTransitionType(settings.transition);
-	dest->SetTransitionDuration(settings.duration);
+	if (!dest->IsMain()) {
+		dest->SetName(settings.name);
+		dest->Attach(settings.width, settings.height);
+	}
+	dest->SetOutputScreen(settings.outputScreen);
 	Manager::Get().NotifyDestinationsChanged();
 }
 
-void StudioWindow::RemoveDestination(Destination *dest)
+void StudioWindow::DeleteDestination(Destination *dest)
 {
-	if (!dest)
+	if (!dest || dest->IsMain())
 		return;
-	if (dest->IsMain()) {
-		QMessageBox::information(this, T("Destinations.RemoveDestination"), T("Destinations.CannotRemoveMain"));
-		return;
-	}
-	const QString name = QString::fromStdString(dest->Name());
-	if (QMessageBox::question(this, T("Destinations.RemoveDestination"),
-				  T("Destinations.ConfirmRemoveDestination").arg(name)) != QMessageBox::Yes)
-		return;
-	Manager::Get().Remove(dest);
+	if (Dialogs::ConfirmDeleteDestination(this, dest))
+		Manager::Get().Remove(dest);
 }
 
-void StudioWindow::FillProjectorMenu()
+bool StudioWindow::HasProjector(Destination *dest) const
 {
-	QMenu *menu = projectorButton->menu();
-	menu->clear();
-
-	Destination *dest = SelectedDestination();
-	if (!dest) {
-		menu->addAction(T("Destinations.SelectDestinationFirst"))->setEnabled(false);
-		return;
-	}
-
-	const QList<QScreen *> screens = QGuiApplication::screens();
-	for (int i = 0; i < screens.size(); i++) {
-		const QRect g = screens[i]->geometry();
-		const qreal ratio = screens[i]->devicePixelRatio();
-		const QString label = QString("%1 %2 : %3 (%4×%5)")
-					      .arg(T("Destinations.Screen"))
-					      .arg(i + 1)
-					      .arg(screens[i]->name())
-					      .arg(int(g.width() * ratio))
-					      .arg(int(g.height() * ratio));
-		connect(menu->addAction(label), &QAction::triggered, this,
-			[this, dest, i]() { OpenProjector(dest, i); });
-	}
-	menu->addSeparator();
-	connect(menu->addAction(T("Destinations.Windowed")), &QAction::triggered, this,
-		[this, dest]() { OpenProjector(dest, -1); });
-	menu->addSeparator();
-	connect(menu->addAction(T("Destinations.CloseProjectors")), &QAction::triggered, this,
-		[this, dest]() { CloseProjectors(dest); });
-}
-
-void StudioWindow::OpenProjector(Destination *dest, int screenIndex)
-{
-	const QList<QScreen *> screens = QGuiApplication::screens();
-	QScreen *screen = (screenIndex >= 0 && screenIndex < screens.size()) ? screens[screenIndex] : nullptr;
-
-	/* Un seul projecteur par écran. */
 	for (auto &p : projectors) {
-		if (p.second && screen && p.second->TargetScreen() == screen)
+		if (p.first == dest && p.second)
+			return true;
+	}
+	return false;
+}
+
+void StudioWindow::OpenProjector(Destination *dest, bool fullscreen)
+{
+	QScreen *screen = fullscreen ? Dialogs::FindScreen(dest->OutputScreen()) : nullptr;
+	if (fullscreen && !screen)
+		return;
+
+	/* Un seul projecteur par écran, et un seul plein écran par
+	 * destination. */
+	for (auto &p : projectors) {
+		if (!p.second)
+			continue;
+		if ((screen && p.second->TargetScreen() == screen) ||
+		    (fullscreen && p.first == dest && p.second->TargetScreen()))
 			p.second->close();
 	}
 

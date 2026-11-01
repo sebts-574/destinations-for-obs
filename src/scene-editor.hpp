@@ -64,7 +64,17 @@ void StretchToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
 void CenterInCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
 void ResetTransform(obs_sceneitem_t *item);
 
-/* Dessin de la sélection (thread graphique, coordonnées canvas). */
-void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale);
+/* Transformation complète (position, échelle, rotation, cadre, recadrage)
+ * pour copier / coller. */
+struct Transform {
+	struct obs_transform_info info = {};
+	struct obs_sceneitem_crop crop = {};
+};
+Transform GetTransform(obs_sceneitem_t *item);
+void SetTransform(obs_sceneitem_t *item, const Transform &t);
+
+/* Dessin de la sélection et des guides de centrage (thread graphique,
+ * coordonnées canvas). */
+void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH);
 
 } // namespace SceneEditor

@@ -18,28 +18,69 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "manager.hpp"
 #include "studio-window.hpp"
+#include "text.hpp"
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <plugin-support.h>
 
 #include <QAction>
+#include <QBoxLayout>
 #include <QMainWindow>
 #include <QMetaObject>
 #include <QPointer>
-#include <QToolBar>
+#include <QPushButton>
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
-#define T(key) QString::fromUtf8(obs_module_text(key))
-
 static const char *SAVE_KEY = "destinations_v2";
 
 static QPointer<StudioWindow> studio;
+static QPointer<QPushButton> controlsButton;
 static obs_hotkey_id studioHotkey = OBS_INVALID_HOTKEY_ID;
 static obs_hotkey_id takeHotkey = OBS_INVALID_HOTKEY_ID;
 static obs_hotkey_id cutHotkey = OBS_INVALID_HOTKEY_ID;
+
+static void ToggleStudio()
+{
+	if (studio)
+		studio->Toggle();
+}
+
+/* ------------------------------------------------------------------ */
+/* Bouton dans le dock Commandes d'OBS                                  */
+/* ------------------------------------------------------------------ */
+
+/* Le dock Commandes n'est pas accessible par l'API des plugins : on retrouve
+ * le bouton « Mode Studio » par son nom interne et on insère le nôtre juste
+ * après, avec le même style. Si OBS change ces noms, le menu Outils et le
+ * raccourci restent disponibles. */
+static void AddControlsButton()
+{
+	if (controlsButton)
+		return;
+	auto *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+	if (!mainWindow)
+		return;
+
+	auto *modeSwitch = mainWindow->findChild<QPushButton *>("modeSwitch");
+	QWidget *container = modeSwitch ? modeSwitch->parentWidget() : nullptr;
+	auto *layout = container ? qobject_cast<QBoxLayout *>(container->layout()) : nullptr;
+	if (!layout) {
+		obs_log(LOG_WARNING, "dock Commandes introuvable : utiliser le menu Outils");
+		return;
+	}
+
+	auto *button = new QPushButton("Multidestination Studio", container);
+	button->setObjectName("multidestinationStudioButton");
+	button->setSizePolicy(modeSwitch->sizePolicy());
+	button->setMinimumSize(modeSwitch->minimumSize());
+	button->setToolTip(Tr("MDS.OpenStudioTip"));
+	QObject::connect(button, &QPushButton::clicked, []() { ToggleStudio(); });
+	layout->insertWidget(layout->indexOf(modeSwitch) + 1, button);
+	controlsButton = button;
+}
 
 /* ------------------------------------------------------------------ */
 /* Sauvegarde dans la collection de scènes                             */
@@ -69,6 +110,8 @@ static void SaveLoad(obs_data_t *save_data, bool saving, void *)
 		SaveHotkey(obj, "hotkey_studio", studioHotkey);
 		SaveHotkey(obj, "hotkey_take", takeHotkey);
 		SaveHotkey(obj, "hotkey_cut", cutHotkey);
+		if (studio)
+			obs_data_set_string(obj, "studio_layout", studio->SaveLayout().toBase64().constData());
 		obs_data_set_obj(save_data, SAVE_KEY, obj);
 		return;
 	}
@@ -80,6 +123,8 @@ static void SaveLoad(obs_data_t *save_data, bool saving, void *)
 		LoadHotkey(obj, "hotkey_studio", studioHotkey);
 		LoadHotkey(obj, "hotkey_take", takeHotkey);
 		LoadHotkey(obj, "hotkey_cut", cutHotkey);
+		if (studio)
+			studio->RestoreLayout(QByteArray::fromBase64(obs_data_get_string(obj, "studio_layout")));
 	}
 }
 
@@ -92,6 +137,9 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 	Manager &m = Manager::Get();
 	switch (event) {
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+		AddControlsButton();
+		m.ApplyLoad();
+		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
 		m.ApplyLoad();
 		break;
@@ -103,6 +151,12 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_CHANGED:
 		m.OnObsProgramChanged();
+		break;
+	case OBS_FRONTEND_EVENT_TRANSITION_CHANGED:
+	case OBS_FRONTEND_EVENT_TRANSITION_LIST_CHANGED:
+	case OBS_FRONTEND_EVENT_TRANSITION_DURATION_CHANGED:
+		if (studio)
+			studio->RefreshTransitions();
 		break;
 	case OBS_FRONTEND_EVENT_EXIT:
 	case OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN:
@@ -127,12 +181,11 @@ static void SourceCreated(void *, calldata_t *cd)
 	if (!m.Ready() || m.CreatingScene())
 		return;
 
-	/* Seulement les scènes du canvas principal (pas nos scènes liées). */
+	/* Seulement les scènes du canvas principal (pas nos scènes liées).
+	 * Selon le moment du signal, le canvas peut ne pas être encore
+	 * renseigné : une scène sans canvas est une scène principale. */
 	obs_canvas_t *canvas = obs_source_get_canvas(source);
 	obs_canvas_t *main = obs_get_main_canvas();
-	/* Selon le moment du signal, le canvas peut ne pas être encore
-	 * renseigné : une scène sans canvas est une scène principale (nos
-	 * scènes liées sont filtrées par CreatingScene()). */
 	const bool isMain = !canvas || canvas == main;
 	obs_canvas_release(canvas);
 	obs_canvas_release(main);
@@ -164,10 +217,7 @@ static void RunOnUi(void (*fn)())
 static void StudioHotkey(void *, obs_hotkey_id, obs_hotkey_t *, bool pressed)
 {
 	if (pressed)
-		RunOnUi([]() {
-			if (studio)
-				studio->Toggle();
-		});
+		RunOnUi([]() { ToggleStudio(); });
 }
 
 static void TakeHotkey(void *, obs_hotkey_id, obs_hotkey_t *, bool pressed)
@@ -193,35 +243,20 @@ bool obs_module_load(void)
 void obs_module_post_load(void)
 {
 	auto *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
-
 	studio = new StudioWindow(mainWindow);
 
-	/* Entrée dans la vue Studio : menu Outils, barre d'outils, raccourci. */
-	auto *toolsAction =
-		static_cast<QAction *>(obs_frontend_add_tools_menu_qaction(obs_module_text("Destinations.StudioMenu")));
-	QObject::connect(toolsAction, &QAction::triggered, []() {
-		if (studio)
-			studio->Toggle();
-	});
+	/* Accès de secours par le menu Outils. */
+	auto *toolsAction = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction("Multidestination Studio"));
+	QObject::connect(toolsAction, &QAction::triggered, []() { ToggleStudio(); });
 
-	if (mainWindow) {
-		auto *toolbar = new QToolBar(T("Destinations.Toolbar"), mainWindow);
-		toolbar->setObjectName("destinationsForObsToolbar");
-		QAction *studioAction = toolbar->addAction(T("Destinations.StudioButton"));
-		studioAction->setToolTip(T("Destinations.StudioMenu"));
-		QObject::connect(studioAction, &QAction::triggered, []() {
-			if (studio)
-				studio->Toggle();
-		});
-		mainWindow->addToolBar(Qt::TopToolBarArea, toolbar);
-	}
-
-	studioHotkey = obs_hotkey_register_frontend(
-		"destinations_for_obs.studio", obs_module_text("Destinations.HotkeyStudio"), StudioHotkey, nullptr);
-	takeHotkey = obs_hotkey_register_frontend("destinations_for_obs.take",
-						  obs_module_text("Destinations.HotkeyTake"), TakeHotkey, nullptr);
-	cutHotkey = obs_hotkey_register_frontend("destinations_for_obs.cut", obs_module_text("Destinations.HotkeyCut"),
-						 CutHotkey, nullptr);
+	const QByteArray studioName = Tr("MDS.HotkeyStudio").toUtf8();
+	const QByteArray takeName = Tr("MDS.HotkeyTransition").toUtf8();
+	const QByteArray cutName = Tr("MDS.HotkeyCut").toUtf8();
+	studioHotkey = obs_hotkey_register_frontend("destinations_for_obs.studio", studioName.constData(), StudioHotkey,
+						    nullptr);
+	takeHotkey =
+		obs_hotkey_register_frontend("destinations_for_obs.take", takeName.constData(), TakeHotkey, nullptr);
+	cutHotkey = obs_hotkey_register_frontend("destinations_for_obs.cut", cutName.constData(), CutHotkey, nullptr);
 
 	signal_handler_connect(obs_get_signal_handler(), "source_create", SourceCreated, nullptr);
 	obs_frontend_add_event_callback(FrontendEvent, nullptr);
@@ -239,7 +274,7 @@ void obs_module_unload(void)
 			obs_hotkey_unregister(id);
 	}
 
-	/* La fenêtre Studio appartient à la fenêtre principale d'OBS. */
+	/* La fenêtre et le bouton appartiennent à la fenêtre principale. */
 	studio = nullptr;
 	obs_log(LOG_INFO, "plugin déchargé");
 }

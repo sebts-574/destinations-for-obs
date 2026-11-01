@@ -19,6 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "projector-window.hpp"
 #include "destination.hpp"
 #include "render-helpers.hpp"
+#include "text.hpp"
 #include "qt-display.hpp"
 
 #include <obs-module.h>
@@ -32,9 +33,7 @@ ProjectorWindow::ProjectorWindow(Destination *destination, QScreen *screen)
 	  target(screen)
 {
 	setAttribute(Qt::WA_DeleteOnClose, true);
-	setWindowTitle(QString("%1 — %2")
-			       .arg(QString::fromUtf8(obs_module_text("Destinations.Projector")))
-			       .arg(QString::fromStdString(dest->Name())));
+	setWindowTitle(QString("%1 — %2").arg(Tr("MDS.Projector")).arg(QString::fromStdString(dest->Name())));
 
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);

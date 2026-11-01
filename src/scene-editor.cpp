@@ -25,6 +25,7 @@ namespace SceneEditor {
 
 static constexpr uint32_t SELECTION_COLOR = 0xFFE03C3C;
 static constexpr uint32_t HANDLE_COLOR = 0xFFFFFFFF;
+static constexpr uint32_t GUIDE_COLOR = 0xFFE03C3C;
 
 static void AlignOffset(uint32_t align, float w, float h, float &ox, float &oy)
 {
@@ -214,7 +215,21 @@ void ResetTransform(obs_sceneitem_t *item)
 	obs_sceneitem_set_pos(item, &pos);
 }
 
-void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale)
+Transform GetTransform(obs_sceneitem_t *item)
+{
+	Transform t;
+	obs_sceneitem_get_info2(item, &t.info);
+	obs_sceneitem_get_crop(item, &t.crop);
+	return t;
+}
+
+void SetTransform(obs_sceneitem_t *item, const Transform &t)
+{
+	obs_sceneitem_set_info2(item, &t.info);
+	obs_sceneitem_set_crop(item, &t.crop);
+}
+
+void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH)
 {
 	if (!scene || itemId < 0 || screenScale <= 0.0f)
 		return;
@@ -222,7 +237,9 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale)
 	struct Ctx {
 		int64_t id;
 		float px; /* un pixel écran en unités canvas */
-	} ctx{itemId, 1.0f / screenScale};
+		float cw;
+		float ch;
+	} ctx{itemId, 1.0f / screenScale, float(canvasW), float(canvasH)};
 
 	obs_scene_enum_items(
 		scene,
@@ -234,6 +251,13 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale)
 			Box box;
 			if (!GetBox(item, box))
 				return false;
+
+			/* Guides quand la source est centrée sur le canvas. */
+			const float tol = 0.5f;
+			if (std::fabs(box.x + box.w * 0.5f - c->cw * 0.5f) <= tol)
+				DrawSolidRect(c->cw * 0.5f - 0.5f * c->px, 0.0f, c->px, c->ch, GUIDE_COLOR);
+			if (std::fabs(box.y + box.h * 0.5f - c->ch * 0.5f) <= tol)
+				DrawSolidRect(0.0f, c->ch * 0.5f - 0.5f * c->px, c->cw, c->px, GUIDE_COLOR);
 
 			DrawOutline(box.x, box.y, box.w, box.h, 2.0f * c->px, SELECTION_COLOR);
 

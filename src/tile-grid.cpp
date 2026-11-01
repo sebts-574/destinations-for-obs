@@ -26,20 +26,19 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QKeyEvent>
 #include <QLabel>
-#include <QMenu>
+#include <QPushButton>
 #include <QHBoxLayout>
 #include <QMouseEvent>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <cmath>
 
-#define T(key) QString::fromUtf8(obs_module_text(key))
+#include "text.hpp"
 
 using SceneEditor::Box;
 
-static constexpr int HEADER_HEIGHT = 20;
+static constexpr int HEADER_HEIGHT = 24;
 static constexpr int GRID_GAP = 6;
 static constexpr float HANDLE_TOLERANCE_PX = 7.0f;
 static constexpr float SNAP_PX = 8.0f;
@@ -82,41 +81,32 @@ TileWidget::TileWidget(Destination *destination, bool program_, QWidget *parent)
 {
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
-	layout->setSpacing(0);
+	layout->setSpacing(2);
 
 	header = new QWidget(this);
 	header->setFixedHeight(HEADER_HEIGHT);
 	auto *headerLayout = new QHBoxLayout(header);
-	headerLayout->setContentsMargins(0, 0, 2, 0);
-	headerLayout->setSpacing(2);
+	headerLayout->setContentsMargins(0, 0, 0, 0);
+	headerLayout->setSpacing(4);
 	headerLabel = new QLabel(header);
 	headerLayout->addWidget(headerLabel, 1);
 
 	if (!program) {
-		lockButton = new QToolButton(header);
+		lockButton = new QPushButton(header);
 		lockButton->setCheckable(true);
 		lockButton->setChecked(dest->Locked());
-		lockButton->setText(T("Destinations.Lock"));
-		lockButton->setToolTip(T("Destinations.LockTip"));
-		lockButton->setFixedHeight(HEADER_HEIGHT - 2);
-		connect(lockButton, &QToolButton::toggled, this, [this](bool on) {
+		lockButton->setToolTip(Tr("MDS.LockTip"));
+		lockButton->setFixedHeight(HEADER_HEIGHT);
+		connect(lockButton, &QPushButton::toggled, this, [this](bool on) {
 			dest->SetLocked(on);
 			RefreshHeader();
 			emit lockChanged(this);
 		});
 		headerLayout->addWidget(lockButton);
-
-		takeButton = new QToolButton(header);
-		takeButton->setText(T("Destinations.TakeOne"));
-		takeButton->setToolTip(T("Destinations.TakeOneTip"));
-		takeButton->setFixedHeight(HEADER_HEIGHT - 2);
-		connect(takeButton, &QToolButton::clicked, this, [this]() { emit takeRequested(this); });
-		headerLayout->addWidget(takeButton);
 	}
 	layout->addWidget(header);
 
 	display = new EditDisplay(this, this);
-	display->SetDisplayBackgroundColor(QColor(30, 30, 30));
 	layout->addWidget(display, 1);
 
 	connect(display, &OBSQTDisplay::DisplayCreated, this,
@@ -175,34 +165,21 @@ void TileWidget::RefreshHeader()
 {
 	QString text =
 		QString("%1  ·  %2×%3").arg(QString::fromStdString(dest->Name())).arg(dest->Width()).arg(dest->Height());
-
-	QString bg = "#2b2b2b";
 	if (program) {
 		const std::string pgm = dest->ProgramSceneName();
 		if (!pgm.empty())
 			text += "  —  " + QString::fromStdString(pgm);
-		bg = "#8a2020";
-	} else {
-		if (!LinkedScene())
-			text += "  —  " + T("Destinations.NotCovered");
-		else if (dest->Locked())
-			bg = "#5a5a5a";
-		else if (onAir)
-			bg = "#8a2020";
-		else
-			bg = "#1f6b35";
-		if (dest->Locked())
-			text += "  —  " + T("Destinations.Locked");
 	}
-
 	headerLabel->setText(text);
-	header->setStyleSheet(QString("QWidget { color: white; background: %1; } QLabel { padding: 0 6px; %2 }")
-				      .arg(bg)
-				      .arg(active ? "font-weight: bold;" : ""));
-	header->setAutoFillBackground(true);
+
+	QFont font = headerLabel->font();
+	font.setBold(active);
+	headerLabel->setFont(font);
+
 	if (lockButton) {
 		const QSignalBlocker blocker(lockButton);
 		lockButton->setChecked(dest->Locked());
+		lockButton->setText(dest->Locked() ? Tr("MDS.Locked") : Tr("MDS.Lock"));
 	}
 }
 
@@ -240,7 +217,7 @@ void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 		const bool previous = gs_set_linear_srgb(true);
 		obs_source_video_render(scene);
 		gs_set_linear_srgb(previous);
-		SceneEditor::DrawSelection(obs_scene_from_source(scene), selected, screenScale);
+		SceneEditor::DrawSelection(obs_scene_from_source(scene), selected, screenScale, w, h);
 	});
 }
 
@@ -294,7 +271,7 @@ void TileWidget::MousePress(QMouseEvent *event)
 		if (id >= 0) {
 			SetSelectedItem(id);
 			emit selectionChanged(this, id);
-			ShowItemMenu(event->globalPosition().toPoint());
+			emit contextMenuRequested(this, event->globalPosition().toPoint());
 		}
 		return;
 	}
@@ -537,13 +514,6 @@ bool TileWidget::KeyPress(QKeyEvent *event)
 	case Qt::Key_Down:
 		dy = step;
 		break;
-	case Qt::Key_Delete:
-	case Qt::Key_Backspace:
-		obs_sceneitem_remove(item);
-		SetSelectedItem(-1);
-		emit selectionChanged(this, -1);
-		emit itemsChanged(this);
-		return true;
 	default:
 		return false;
 	}
@@ -556,78 +526,13 @@ bool TileWidget::KeyPress(QKeyEvent *event)
 	return true;
 }
 
-void TileWidget::ShowItemMenu(const QPoint &globalPos)
-{
-	OBSSceneItem item = SelectedSceneItem();
-	if (!item)
-		return;
-
-	const uint32_t cw = dest->Width();
-	const uint32_t ch = dest->Height();
-	obs_sceneitem_t *it = item;
-
-	QMenu menu(this);
-	connect(menu.addAction(T("Destinations.Fit")), &QAction::triggered, this,
-		[it, cw, ch]() { SceneEditor::FitToCanvas(it, cw, ch); });
-	connect(menu.addAction(T("Destinations.Stretch")), &QAction::triggered, this,
-		[it, cw, ch]() { SceneEditor::StretchToCanvas(it, cw, ch); });
-	connect(menu.addAction(T("Destinations.Center")), &QAction::triggered, this,
-		[it, cw, ch]() { SceneEditor::CenterInCanvas(it, cw, ch); });
-	connect(menu.addAction(T("Destinations.ResetTransform")), &QAction::triggered, this,
-		[it]() { SceneEditor::ResetTransform(it); });
-	menu.addSeparator();
-
-	QMenu *order = menu.addMenu(T("Destinations.Order"));
-	connect(order->addAction(T("Destinations.MoveUp")), &QAction::triggered, this, [this, it]() {
-		obs_sceneitem_set_order(it, OBS_ORDER_MOVE_UP);
-		emit itemsChanged(this);
-	});
-	connect(order->addAction(T("Destinations.MoveDown")), &QAction::triggered, this, [this, it]() {
-		obs_sceneitem_set_order(it, OBS_ORDER_MOVE_DOWN);
-		emit itemsChanged(this);
-	});
-	connect(order->addAction(T("Destinations.MoveTop")), &QAction::triggered, this, [this, it]() {
-		obs_sceneitem_set_order(it, OBS_ORDER_MOVE_TOP);
-		emit itemsChanged(this);
-	});
-	connect(order->addAction(T("Destinations.MoveBottom")), &QAction::triggered, this, [this, it]() {
-		obs_sceneitem_set_order(it, OBS_ORDER_MOVE_BOTTOM);
-		emit itemsChanged(this);
-	});
-
-	QAction *visible = menu.addAction(T("Destinations.Visible"));
-	visible->setCheckable(true);
-	visible->setChecked(obs_sceneitem_visible(it));
-	connect(visible, &QAction::toggled, this, [this, it](bool on) {
-		obs_sceneitem_set_visible(it, on);
-		emit itemsChanged(this);
-	});
-	menu.addSeparator();
-
-	obs_source_t *source = obs_sceneitem_get_source(it);
-	connect(menu.addAction(T("Destinations.Properties")), &QAction::triggered, this,
-		[source]() { obs_frontend_open_source_properties(source); });
-	connect(menu.addAction(T("Destinations.Filters")), &QAction::triggered, this,
-		[source]() { obs_frontend_open_source_filters(source); });
-	menu.addSeparator();
-	connect(menu.addAction(T("Destinations.RemoveFromScene")), &QAction::triggered, this, [this, it]() {
-		obs_sceneitem_remove(it);
-		SetSelectedItem(-1);
-		emit selectionChanged(this, -1);
-		emit itemsChanged(this);
-	});
-
-	/* L'élément reste référencé par `item` pendant toute la durée du menu. */
-	menu.exec(globalPos);
-}
-
 /* ------------------------------------------------------------------ */
 /* Grille                                                               */
 /* ------------------------------------------------------------------ */
 
 TileGrid::TileGrid(bool program_, QWidget *parent) : QWidget(parent), program(program_)
 {
-	emptyLabel = new QLabel(T("Destinations.NoneShown"), this);
+	emptyLabel = new QLabel(Tr("MDS.NoDestinationForScene"), this);
 	emptyLabel->setAlignment(Qt::AlignCenter);
 	setMinimumHeight(80);
 }

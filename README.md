@@ -4,31 +4,41 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.2 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.1 a été testée dans OBS, la V0.2 pas encore.
+> Statut : **V0.3 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.2 a été testée dans OBS, la V0.3 pas encore.
 
-## Ce que fait la V0.2
+## Multidestination Studio (V0.3)
 
-- **Scènes communes** : une scène OBS couvre une ou plusieurs destinations,
-  choisies à sa création (y compris quand on crée la scène depuis OBS).
-  Chaque destination a sa propre version de la scène : sources et placement.
-- **Destination par défaut** = le canvas principal d'OBS (Paramètres → Vidéo),
-  avec son stream, son enregistrement et sa transition.
-- **Vue Studio** (menu Outils, barre d'outils « Vue Studio », raccourci ;
-  Échap pour quitter) : PREVIEW et PROGRAM côte à côte, avec seulement les
-  destinations couvertes par la scène sélectionnée, empilées verticalement.
-- **Édition à la souris** dans le PREVIEW : sélectionner, déplacer
-  (aimantation aux bords et au centre, Ctrl pour la couper), redimensionner
-  (Maj pour libérer les proportions), recadrer (Alt + poignée), flèches pour
-  décaler, Suppr pour retirer, clic droit pour ajuster / étirer / ordre /
-  propriétés / filtres.
-- **TAKE global** (AUTO ou CUT) : chaque destination couverte bascule avec sa
-  propre transition. **Verrou** par destination pour qu'elle ignore le TAKE
-  global, et **TAKE** individuel.
-- **Suivre les scènes d'OBS** (option) : un changement de scène fait dans OBS
-  entraîne les autres destinations.
-- Plusieurs destinations, chacune avec sa résolution, sa transition et son
-  projecteur plein écran.
+- **Ouverture** : bouton « Multidestination Studio » dans le dock Commandes
+  d'OBS (entre « Mode Studio » et « Paramètres »), menu Outils, ou raccourci.
+  Échap ou Fichier → Quitter pour revenir à OBS.
+- **Fenêtre façon OBS** : Aperçu / Programme au centre (destinations de la
+  scène sélectionnée, empilées), boutons Transition et Cut entre les deux ;
+  docks Scènes, Sources, Mixeur audio, Transitions de scène, Commandes
+  (déplaçables, menu Docks).
+- **Scènes** : chaque nouvelle scène (ici ou dans OBS) demande sur quelles
+  destinations l'afficher, toutes cochées par défaut. Chaque destination a sa
+  mise en page de la scène.
+- **Sources** : création de nouvelles sources directement dans la vue (même
+  liste de types que le « + » d'OBS), ajout de sources existantes ou de
+  scènes.
+- **Édition à la souris** : déplacer, redimensionner (Maj : proportions
+  libres), recadrer (Alt), aimantation (Ctrl pour la couper), guides quand la
+  source est centrée.
+- **Raccourcis** (dans les aperçus et la liste des sources) : Suppr/Retour
+  arrière, Ctrl+C / Ctrl+V, Ctrl+Maj+C / Ctrl+Maj+V (transformation), Ctrl+R,
+  Ctrl+F, Ctrl+S, Ctrl+D, Ctrl+↑ / ↓ / Début / Fin, flèches (Maj : ×10).
+  Cmd au lieu de Ctrl sur macOS.
+- **Transition** : une seule transition, celle d'OBS (type, durée,
+  propriétés), appliquée à toutes les destinations. Après une transition,
+  l'ancien Programme revient en Aperçu, comme dans OBS. Une destination que
+  la scène n'affiche pas garde son Programme ; **Verrouiller** exclut une
+  destination.
+- **Menu Destinations** : chaque destination (Paramètres, Ouvrir en plein
+  écran sur son écran de sortie, Ouvrir en fenêtre, Fermer la projection,
+  Supprimer avec confirmation) et « Nouvelle destination… » (nom,
+  résolution, écran de sortie). Une nouvelle destination est ajoutée à toutes
+  les scènes existantes.
 
 ## Compatibilité
 
@@ -67,6 +77,7 @@ compile pour les trois systèmes. Les fichiers sont dans l'onglet **Actions**
 |---|---|
 | V0.1 | Une destination : scènes, PVW/PGM, transitions, projecteur |
 | V0.2 | Scènes communes, vue Studio, édition à la souris, TAKE global, N destinations |
+| V0.3 | Multidestination Studio façon OBS, sources, mixeur, transition globale, menu Destinations |
 | V0.3 | Layout : tranches, edge blending (courbe + gamma), corner pin |
 | V0.4 | Sorties par tranche : DeckLink, NDI ; stream et enregistrement |
 

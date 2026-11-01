@@ -38,14 +38,14 @@ public:
 	/* Destination par défaut en premier. */
 	std::vector<Destination *> Destinations() const;
 	Destination *Main() const { return destinations.empty() ? nullptr : destinations.front().get(); }
-	Destination *Add(const std::string &name, uint32_t width, uint32_t height, bool coverAllScenes);
+	/* Nouvelle destination, ajoutée à toutes les scènes existantes (on la
+	 * retire ensuite des scènes où elle n'a rien à faire). */
+	Destination *Add(const std::string &name, uint32_t width, uint32_t height);
 	void Remove(Destination *dest);
 	void NotifyDestinationsChanged() { emit destinationsChanged(); }
 
 	/* --- Scènes communes (= scènes OBS) --- */
 	static std::vector<OBSSource> MainScenes();
-	/* Crée une scène OBS et ses scènes liées dans les destinations
-	 * choisies. Renvoie la scène OBS, ou rien si le nom est pris. */
 	OBSSource CreateScene(const std::string &name, const std::set<Destination *> &coverage);
 	void SetCoverage(obs_source_t *mainScene, const std::set<Destination *> &coverage);
 	void RenameScene(obs_source_t *mainScene, const std::string &name);
@@ -56,16 +56,12 @@ public:
 	void SetPreviewScene(obs_source_t *mainScene);
 	OBSSource PreviewScene() const { return OBSGetStrongRef(previewScene); }
 	OBSSource ProgramScene() const { return OBSGetStrongRef(programScene); }
-	/* TAKE global : chaque destination couverte passe à sa scène liée,
-	 * avec sa propre transition. Les autres gardent leur Program. */
+	/* Transition : chaque destination couverte et non verrouillée passe à
+	 * sa scène liée avec la transition d'OBS. Les destinations que la
+	 * scène ne couvre pas gardent leur Program. Le Preview reçoit ensuite
+	 * l'ancien Program, comme dans OBS. */
 	void Take(bool cut);
-	/* TAKE d'une seule destination (même si elle est verrouillée). */
-	void TakeOne(Destination *dest, bool cut);
 	void OnObsProgramChanged();
-	/* Quand OBS change de scène (bouton, raccourci, Stream Deck…), les
-	 * autres destinations suivent. */
-	bool FollowObs() const { return followObs; }
-	void SetFollowObs(bool value) { followObs = value; }
 
 	/* --- Cycle de vie de la collection de scènes --- */
 	void Save(obs_data_t *data) const;
@@ -73,9 +69,6 @@ public:
 	void ApplyLoad();
 	void Reset();
 
-	/* Appelé quand une scène est créée dans OBS (bouton +, duplication,
-	 * obs-websocket…) : la vue demande les destinations couvertes. */
-	void OnSceneCreated(obs_source_t *scene);
 	bool CreatingScene() const { return creatingScene; }
 	bool Ready() const { return ready; }
 
@@ -87,7 +80,6 @@ signals:
 	void scenesChanged();
 	void previewChanged();
 	void programChanged();
-	void sceneCreatedInObs(OBSSource scene);
 
 private:
 	Manager();
@@ -97,7 +89,6 @@ private:
 	OBSWeakSource programScene;
 	OBSData pendingLoad;
 	bool ready = false;
-	bool followObs = true;
 	bool taking = false;
 	bool creatingScene = false;
 };
