@@ -77,11 +77,19 @@ void SetTransform(obs_sceneitem_t *item, const Transform &t);
  * autre. */
 void CopyLayout(obs_scene_t *from, obs_scene_t *to);
 
-/* Taille du cadre provisoire d'une source dont l'image n'est pas encore
- * connue (média pas encore lu). */
+/* Taille du cadre provisoire d'une vidéo dont l'image n'a jamais été vue
+ * (ni lue ni mémorisée). */
 constexpr float PLACEHOLDER_W = 320.0f;
 constexpr float PLACEHOLDER_H = 180.0f;
 bool IsPlaceholder(obs_sceneitem_t *item);
+/* Vidéo sans image en ce moment (inactive, pas encore lue). */
+bool IsInactiveVideo(obs_sceneitem_t *item);
+/* Taille d'image d'une source : réelle, sinon la dernière connue (une vidéo
+ * inactive n'a plus de taille dans OBS). */
+bool SourceSize(obs_source_t *source, uint32_t &w, uint32_t &h);
+/* Mémorise dans les réglages de chaque source la taille de son image
+ * (thread de l'interface). */
+void RememberSizes(obs_scene_t *scene);
 
 /* Dessin de la sélection et des guides de centrage (thread graphique,
  * coordonnées canvas). */

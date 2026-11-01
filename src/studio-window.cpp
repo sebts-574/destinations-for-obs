@@ -182,6 +182,13 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 			return;
 		RefreshTally();
 		UpdateControls();
+		/* Taille des vidéos vues, pour pouvoir les éditer inactives. */
+		for (TileGrid *grid : {pvwGrid, pgmGrid}) {
+			for (TileWidget *tile : grid->Tiles()) {
+				OBSSource scene = tile->EditScene();
+				SceneEditor::RememberSizes(obs_scene_from_source(scene));
+			}
+		}
 	});
 	timer->start(500);
 }

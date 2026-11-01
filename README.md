@@ -4,8 +4,8 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.5 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.4 a été testée dans OBS, la V0.5 pas encore.
+> Statut : **V0.6 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.5 a été testée dans OBS (sauf l'Output blending), la V0.6 pas encore.
 
 ## Installer
 
@@ -20,6 +20,14 @@ build → Artifacts) :
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.6
+
+- Une vidéo inactive (pas lue, sans image) se déplace, se redimensionne et se
+  modifie comme les autres sources, y compris juste après l'ajout. Sa taille
+  d'image est mémorisée dès qu'elle a été vue une fois, et enregistrée avec
+  la collection. Une vidéo jamais vue garde un cadre provisoire ; si on le
+  redimensionne, l'image s'y adaptera en gardant ses proportions.
 
 ## Nouveautés V0.5
 

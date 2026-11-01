@@ -476,9 +476,11 @@ void TileWidget::MouseMove(QMouseEvent *event)
 	}
 
 	if (drag == Drag::Crop) {
-		obs_source_t *source = obs_sceneitem_get_source(item);
-		const int sw = int(obs_source_get_width(source));
-		const int sh = int(obs_source_get_height(source));
+		uint32_t usw = 0;
+		uint32_t ush = 0;
+		SceneEditor::SourceSize(obs_sceneitem_get_source(item), usw, ush);
+		const int sw = int(usw);
+		const int sh = int(ush);
 		if (sw <= 0 || sh <= 0 || startScaleX <= 0.0f || startScaleY <= 0.0f)
 			return;
 

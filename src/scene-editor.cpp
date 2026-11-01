@@ -20,6 +20,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "render-helpers.hpp"
 
 #include <cmath>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <obs.hpp>
@@ -43,12 +46,90 @@ bool UsesBounds(obs_sceneitem_t *item)
 	return obs_sceneitem_get_bounds_type(item) != OBS_BOUNDS_NONE;
 }
 
-bool IsPlaceholder(obs_sceneitem_t *item)
+/* Taille d'image mémorisée par source (UUID) : une vidéo inactive n'a plus
+ * de taille dans OBS, mais garde la sienne ici et dans ses réglages privés
+ * (enregistrés avec la collection). */
+static constexpr const char *SIZE_W_KEY = "destinations_native_w";
+static constexpr const char *SIZE_H_KEY = "destinations_native_h";
+static std::mutex sizeMutex;
+static std::unordered_map<std::string, std::pair<uint32_t, uint32_t>> sizeCache;
+
+bool SourceSize(obs_source_t *source, uint32_t &w, uint32_t &h)
 {
-	if (UsesBounds(item))
+	if (!source)
 		return false;
+	w = obs_source_get_width(source);
+	h = obs_source_get_height(source);
+	const char *uuid = obs_source_get_uuid(source);
+	const std::string key = uuid ? uuid : "";
+
+	if (w > 0 && h > 0) {
+		if (!key.empty()) {
+			std::lock_guard<std::mutex> lock(sizeMutex);
+			sizeCache[key] = {w, h};
+		}
+		return true;
+	}
+	if (key.empty())
+		return false;
+
+	{
+		std::lock_guard<std::mutex> lock(sizeMutex);
+		auto it = sizeCache.find(key);
+		if (it != sizeCache.end()) {
+			w = it->second.first;
+			h = it->second.second;
+			return true;
+		}
+	}
+
+	OBSDataAutoRelease priv = obs_source_get_private_settings(source);
+	w = uint32_t(obs_data_get_int(priv, SIZE_W_KEY));
+	h = uint32_t(obs_data_get_int(priv, SIZE_H_KEY));
+	if (w == 0 || h == 0)
+		return false;
+	std::lock_guard<std::mutex> lock(sizeMutex);
+	sizeCache[key] = {w, h};
+	return true;
+}
+
+void RememberSizes(obs_scene_t *scene)
+{
+	if (!scene)
+		return;
+	obs_scene_enum_items(
+		scene,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *) {
+			obs_source_t *source = obs_sceneitem_get_source(item);
+			const uint32_t w = obs_source_get_width(source);
+			const uint32_t h = obs_source_get_height(source);
+			if (w == 0 || h == 0 || !(obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO))
+				return true;
+			uint32_t cw = 0, ch = 0;
+			SourceSize(source, cw, ch); /* met le cache à jour */
+			OBSDataAutoRelease priv = obs_source_get_private_settings(source);
+			if (uint32_t(obs_data_get_int(priv, SIZE_W_KEY)) != w ||
+			    uint32_t(obs_data_get_int(priv, SIZE_H_KEY)) != h) {
+				obs_data_set_int(priv, SIZE_W_KEY, w);
+				obs_data_set_int(priv, SIZE_H_KEY, h);
+			}
+			return true;
+		},
+		nullptr);
+}
+
+bool IsInactiveVideo(obs_sceneitem_t *item)
+{
 	obs_source_t *source = obs_sceneitem_get_source(item);
 	return (obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) && obs_source_get_width(source) == 0;
+}
+
+bool IsPlaceholder(obs_sceneitem_t *item)
+{
+	if (UsesBounds(item) || !IsInactiveVideo(item))
+		return false;
+	uint32_t w, h;
+	return !SourceSize(obs_sceneitem_get_source(item), w, h);
 }
 
 bool IsRotated(obs_sceneitem_t *item)
@@ -58,10 +139,9 @@ bool IsRotated(obs_sceneitem_t *item)
 
 bool CroppedSourceSize(obs_sceneitem_t *item, float &w, float &h)
 {
-	obs_source_t *source = obs_sceneitem_get_source(item);
-	const uint32_t sw = obs_source_get_width(source);
-	const uint32_t sh = obs_source_get_height(source);
-	if (sw == 0 || sh == 0)
+	uint32_t sw = 0;
+	uint32_t sh = 0;
+	if (!SourceSize(obs_sceneitem_get_source(item), sw, sh))
 		return false;
 
 	struct obs_sceneitem_crop crop = {};
@@ -115,8 +195,8 @@ void SetBox(obs_sceneitem_t *item, const Box &box)
 	if (!item || box.w < 1.0f || box.h < 1.0f)
 		return;
 
-	if (IsPlaceholder(item)) {
-		/* Taille inconnue : on ne fait que déplacer. */
+	if (IsPlaceholder(item) && std::fabs(box.w - PLACEHOLDER_W) < 0.5f && std::fabs(box.h - PLACEHOLDER_H) < 0.5f) {
+		/* Simple déplacement : la vidéo gardera sa taille d'origine. */
 		float ox = 0.0f;
 		float oy = 0.0f;
 		AlignOffset(obs_sceneitem_get_alignment(item), PLACEHOLDER_W, PLACEHOLDER_H, ox, oy);
@@ -124,6 +204,16 @@ void SetBox(obs_sceneitem_t *item, const Box &box)
 		vec2_set(&pos, box.x + ox, box.y + oy);
 		obs_sceneitem_set_pos(item, &pos);
 		return;
+	}
+	if (IsPlaceholder(item)) {
+		/* Taille d'image encore inconnue : on passe en cadre (bounds),
+		 * l'image s'y adaptera, en gardant ses proportions, dès qu'elle
+		 * sera connue. */
+		obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
+		obs_sceneitem_set_bounds_alignment(item, OBS_ALIGN_CENTER);
+		struct vec2 one;
+		vec2_set(&one, 1.0f, 1.0f);
+		obs_sceneitem_set_scale(item, &one);
 	}
 
 	if (UsesBounds(item)) {
@@ -199,6 +289,11 @@ int HandleAt(const Box &box, float x, float y, float tol)
 void FitToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
 {
 	if (UsesBounds(item)) {
+		SetBox(item, Box{0.0f, 0.0f, float(cw), float(ch)});
+		return;
+	}
+	if (IsPlaceholder(item)) {
+		/* Taille inconnue : cadre plein canvas, l'image s'y adaptera. */
 		SetBox(item, Box{0.0f, 0.0f, float(cw), float(ch)});
 		return;
 	}
@@ -325,9 +420,9 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
 			auto *c = static_cast<Ctx *>(param);
 			if (obs_sceneitem_get_id(item) != c->id) {
-				/* Média sans image : cadre provisoire toujours visible. */
+				/* Vidéo inactive (sans image) : cadre toujours visible. */
 				Box ph;
-				if (obs_sceneitem_visible(item) && IsPlaceholder(item) && GetBox(item, ph))
+				if (obs_sceneitem_visible(item) && IsInactiveVideo(item) && GetBox(item, ph))
 					DrawOutline(ph.x, ph.y, ph.w, ph.h, c->px, PLACEHOLDER_COLOR);
 				return true;
 			}
