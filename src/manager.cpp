@@ -62,8 +62,72 @@ void Manager::SetMainDisabled(bool disabled)
 	emit scenesChanged();
 }
 
-Destination *Manager::Add(const std::string &name, uint32_t width, uint32_t height, bool addToExisting)
+/* Nom de canvas libre : « Nom », sinon « Nom (2) », « Nom (3) »… */
+static std::string UniqueCanvasName(const std::string &name)
 {
+	std::string candidate = name;
+	for (int n = 2;; n++) {
+		obs_canvas_t *existing = obs_get_canvas_by_name(candidate.c_str());
+		if (!existing)
+			return candidate;
+		obs_canvas_release(existing);
+		candidate = name + " (" + std::to_string(n) + ")";
+	}
+}
+
+/* Canvas d'une destination dont les données ont été perdues (versions
+ * antérieures à la 1.0.1) : OBS a gardé le canvas et ses scènes liées. On
+ * les reprend comme destinations pour ne rien perdre. */
+void Manager::AdoptOrphanCanvases()
+{
+	std::set<std::string> used;
+	for (auto &d : destinations)
+		used.insert(d->Id());
+
+	struct obs_frontend_canvas_list list = {};
+	obs_frontend_get_canvases(&list);
+	std::vector<std::pair<std::string, std::string>> orphans; /* uuid, nom */
+	for (size_t i = 0; i < list.canvases.num; i++) {
+		obs_canvas_t *c = list.canvases.array[i];
+		const char *uuid = obs_canvas_get_uuid(c);
+		if (obs_canvas_removed(c) || !uuid || used.count(uuid))
+			continue;
+		bool ours = false;
+		obs_canvas_enum_scenes(
+			c,
+			[](void *param, obs_source_t *scene) {
+				OBSDataAutoRelease priv = obs_source_get_private_settings(scene);
+				const char *link = obs_data_get_string(priv, Destination::LINK_KEY);
+				if ((link && *link) || obs_data_get_bool(priv, Destination::LIVE_KEY)) {
+					*static_cast<bool *>(param) = true;
+					return false;
+				}
+				return true;
+			},
+			&ours);
+		if (ours) {
+			const char *name = obs_canvas_get_name(c);
+			orphans.emplace_back(uuid, name ? name : "");
+		}
+	}
+	obs_frontend_canvas_list_free(&list);
+
+	for (auto &[uuid, name] : orphans) {
+		OBSDataAutoRelease item = obs_data_create();
+		obs_data_set_string(item, "id", uuid.c_str());
+		obs_data_set_string(item, "name", name.c_str());
+		auto dest = std::make_unique<Destination>(name);
+		dest->Load(item);
+		if (dest->Attached()) {
+			obs_log(LOG_INFO, "destination « %s » retrouvée", name.c_str());
+			destinations.push_back(std::move(dest));
+		}
+	}
+}
+
+Destination *Manager::Add(const std::string &requestedName, uint32_t width, uint32_t height, bool addToExisting)
+{
+	const std::string name = UniqueCanvasName(requestedName);
 	auto dest = std::make_unique<Destination>(name);
 	if (!dest->Attach(width, height))
 		return nullptr;
@@ -296,6 +360,14 @@ void Manager::Save(obs_data_t *data) const
 
 void Manager::ApplyLoad()
 {
+	/* OBS envoie « collection chargée » puis « chargement terminé » au
+	 * démarrage : le second appel, sans nouvelles données, ne doit pas
+	 * vider les destinations déjà chargées. */
+	if (ready && !pendingLoad) {
+		Sync();
+		return;
+	}
+
 	/* Les destinations supplémentaires de la collection précédente ont
 	 * déjà été détachées par Reset(). */
 	while (destinations.size() > 1)
@@ -323,6 +395,7 @@ void Manager::ApplyLoad()
 			if (dest->Attached())
 				destinations.push_back(std::move(dest));
 		}
+		AdoptOrphanCanvases();
 		creatingScene = false;
 
 		OBSSourceAutoRelease preview = obs_get_source_by_uuid(obs_data_get_string(data, "preview_scene"));

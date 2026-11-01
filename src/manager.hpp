@@ -130,5 +130,6 @@ private:
 	bool launchOnStartup = false;
 
 	void LoadSettings();
+	void AdoptOrphanCanvases();
 	void SaveSettings() const;
 };

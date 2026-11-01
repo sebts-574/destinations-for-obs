@@ -91,8 +91,12 @@ bool Destination::Attach(uint32_t w, uint32_t h, const std::string &uuidHint)
 
 		struct obs_frontend_canvas_list list = {};
 		obs_frontend_get_canvases(&list);
-		/* D'abord par UUID (stable), puis par nom. */
-		for (int pass = 0; pass < 2 && !found; pass++) {
+		/* Chargement : par UUID (stable), puis par nom. Nouvelle
+		 * destination (pas d'UUID) : jamais par nom, sinon elle
+		 * reprendrait le canvas d'une autre destination ou d'une
+		 * destination perdue, avec toutes ses scènes. */
+		const int passes = uuidHint.empty() ? 0 : 2;
+		for (int pass = 0; pass < passes && !found; pass++) {
 			for (size_t i = 0; i < list.canvases.num; i++) {
 				obs_canvas_t *c = list.canvases.array[i];
 				if (obs_canvas_removed(c))
