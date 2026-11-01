@@ -695,9 +695,9 @@ void StudioWindow::BuildMenus()
 
 	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
 	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
-}
 
-FillDestinationsMenu();
+	FillDestinationsMenu();
+}
 
 /* ------------------------------------------------------------------ */
 /* Commandes de fenêtre en plein écran                                  */
