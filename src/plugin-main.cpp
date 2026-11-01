@@ -244,6 +244,9 @@ bool obs_module_load(void)
 
 void obs_module_post_load(void)
 {
+	/* Réglages (dont la langue du plugin) avant tout texte de l'interface. */
+	Manager::Get();
+
 	auto *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	studio = new StudioWindow(mainWindow);
 

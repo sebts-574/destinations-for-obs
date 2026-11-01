@@ -20,6 +20,13 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QString>
 
+#include <string>
+
 /* Texte traduit. Si les fichiers de langue sont introuvables (plugin mal
  * installé), on affiche le texte anglais intégré, jamais la clé brute. */
 QString Tr(const char *key);
+
+/* Langue de l'interface du plugin, indépendante de celle d'OBS :
+ * "" = suivre OBS, sinon "en-US", "fr-FR" ou "nb-NO". */
+void SetUiLanguage(const std::string &locale);
+std::string UiLanguage();

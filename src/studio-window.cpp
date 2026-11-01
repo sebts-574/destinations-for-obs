@@ -606,6 +606,14 @@ void StudioWindow::BuildMenus()
 		if (Dialogs::EditDisplaySetting(this, showAll))
 			Manager::Get().SetShowAllDestinations(showAll);
 	});
+	settingsMenu->addSeparator();
+	connect(settingsMenu->addAction(Tr("MDS.SettingLanguageMenu")), &QAction::triggered, this, [this]() {
+		std::string locale = Manager::Get().Language();
+		if (!Dialogs::EditLanguageSetting(this, locale) || locale == Manager::Get().Language())
+			return;
+		Manager::Get().SetLanguage(locale);
+		QMessageBox::information(this, Tr("MDS.SettingLanguage"), Tr("MDS.SettingLanguageRestart"));
+	});
 	settingsMenuAction = settingsMenu->menuAction();
 
 	/* Info « F11 … » juste après le dernier menu. */

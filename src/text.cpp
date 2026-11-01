@@ -22,11 +22,43 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <util/text-lookup.h>
+
 #include <cstring>
+
+static lookup_t *forcedLookup = nullptr;
+static std::string forcedLocale;
+
+void SetUiLanguage(const std::string &locale)
+{
+	if (forcedLookup) {
+		text_lookup_destroy(forcedLookup);
+		forcedLookup = nullptr;
+	}
+	forcedLocale.clear();
+	if (locale.empty())
+		return;
+
+	char *path = obs_module_file(("locale/" + locale + ".ini").c_str());
+	if (path)
+		forcedLookup = text_lookup_create(path);
+	bfree(path);
+	if (forcedLookup)
+		forcedLocale = locale;
+	else
+		obs_log(LOG_WARNING, "langue %s introuvable, langue d'OBS utilisée", locale.c_str());
+}
+
+std::string UiLanguage()
+{
+	return forcedLocale;
+}
 
 QString Tr(const char *key)
 {
 	const char *out = nullptr;
+	if (forcedLookup && text_lookup_getstr(forcedLookup, key, &out) && out)
+		return QString::fromUtf8(out);
 	if (obs_module_get_string(key, &out) && out)
 		return QString::fromUtf8(out);
 

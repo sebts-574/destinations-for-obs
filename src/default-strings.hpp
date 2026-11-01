@@ -214,4 +214,9 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.ConfirmRemoveSources", "Remove these %1 sources from this scene?"},
 	{"MDS.FullscreenHint", "F11 to toggle fullscreen"},
 	{"MDS.NotInSceneBadge", "Not in this scene"},
+	{"MDS.SettingLanguageMenu", "Language…"},
+	{"MDS.SettingLanguage", "Language"},
+	{"MDS.SettingLanguageIntro", "Language of Multidestination Studio, independent of the OBS language:"},
+	{"MDS.SettingLanguageObs", "Same as OBS"},
+	{"MDS.SettingLanguageRestart", "The new language is used after OBS restarts."},
 };

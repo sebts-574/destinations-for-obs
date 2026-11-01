@@ -57,6 +57,9 @@ bool EditAfterTakeSetting(QWidget *parent, bool &swap);
  * seulement celles de la scène sélectionnée. */
 bool EditDisplaySetting(QWidget *parent, bool &showAll);
 
+/* Langue du plugin : "" = celle d'OBS, sinon un code de langue. */
+bool EditLanguageSetting(QWidget *parent, std::string &locale);
+
 /* Écran physique par son nom, ou nullptr. */
 QScreen *FindScreen(const std::string &name);
 QString ScreenLabel(QScreen *screen, int index);

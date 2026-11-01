@@ -287,6 +287,50 @@ bool EditDisplaySetting(QWidget *parent, bool &showAll)
 			    Tr("MDS.SettingDisplaySceneTip"), showAll);
 }
 
+bool EditLanguageSetting(QWidget *parent, std::string &locale)
+{
+	QDialog dialog(parent);
+	dialog.setWindowTitle(Tr("MDS.SettingLanguage"));
+	dialog.setMinimumWidth(420);
+	auto *layout = new QVBoxLayout(&dialog);
+	auto *intro = new QLabel(Tr("MDS.SettingLanguageIntro"), &dialog);
+	intro->setWordWrap(true);
+	layout->addWidget(intro);
+	layout->addSpacing(6);
+
+	/* Noms des langues dans leur propre langue. */
+	const std::pair<std::string, QString> choices[] = {
+		{"", Tr("MDS.SettingLanguageObs")},
+		{"en-US", "English"},
+		{"fr-FR", "Français"},
+		{"nb-NO", "Norsk (bokmål)"},
+	};
+	std::vector<std::pair<QRadioButton *, std::string>> radios;
+	for (const auto &c : choices) {
+		auto *radio = new QRadioButton(c.second, &dialog);
+		radio->setChecked(c.first == locale);
+		layout->addWidget(radio);
+		radios.emplace_back(radio, c.first);
+	}
+	auto *note = new QLabel(Tr("MDS.SettingLanguageRestart"), &dialog);
+	note->setWordWrap(true);
+	note->setContentsMargins(0, 8, 0, 0);
+	note->setStyleSheet("color: palette(window-text);");
+	layout->addWidget(note);
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addWidget(buttons);
+	if (dialog.exec() != QDialog::Accepted)
+		return false;
+	for (auto &r : radios) {
+		if (r.first->isChecked())
+			locale = r.second;
+	}
+	return true;
+}
+
 bool ConfirmDeleteDestination(QWidget *parent, Destination *dest)
 {
 	QMessageBox box(parent);

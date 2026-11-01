@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "manager.hpp"
+#include "text.hpp"
 
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
@@ -370,6 +371,11 @@ void Manager::LoadSettings()
 	config_set_default_bool(config, SETTINGS_SECTION, "SwapAfterTake", true);
 	config_set_default_bool(config, SETTINGS_SECTION, "ShowAllDestinations", true);
 	swapAfterTake = config_get_bool(config, SETTINGS_SECTION, "SwapAfterTake");
+	const char *lang = config_get_string(config, SETTINGS_SECTION, "Language");
+	language = lang ? lang : "";
+	SetUiLanguage(language);
+	obs_log(LOG_INFO, "langue d'OBS : %s, langue du plugin : %s", obs_get_locale(),
+		language.empty() ? "celle d'OBS" : language.c_str());
 	showAllDestinations = config_get_bool(config, SETTINGS_SECTION, "ShowAllDestinations");
 }
 
@@ -380,6 +386,7 @@ void Manager::SaveSettings() const
 		return;
 	config_set_bool(config, SETTINGS_SECTION, "SwapAfterTake", swapAfterTake);
 	config_set_bool(config, SETTINGS_SECTION, "ShowAllDestinations", showAllDestinations);
+	config_set_string(config, SETTINGS_SECTION, "Language", language.c_str());
 	config_save_safe(config, "tmp", nullptr);
 }
 
@@ -399,4 +406,12 @@ void Manager::SetShowAllDestinations(bool value)
 	showAllDestinations = value;
 	SaveSettings();
 	emit settingsChanged();
+}
+
+void Manager::SetLanguage(const std::string &value)
+{
+	if (language == value)
+		return;
+	language = value;
+	SaveSettings();
 }

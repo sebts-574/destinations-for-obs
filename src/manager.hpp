@@ -92,6 +92,10 @@ public:
 	 * celles de la scène sélectionnée. */
 	bool ShowAllDestinations() const { return showAllDestinations; }
 	void SetShowAllDestinations(bool value);
+	/* Langue du plugin ("" = celle d'OBS). Prise en compte au prochain
+	 * démarrage d'OBS. */
+	const std::string &Language() const { return language; }
+	void SetLanguage(const std::string &value);
 	bool Ready() const { return ready; }
 
 signals:
@@ -117,7 +121,8 @@ private:
 	bool taking = false;
 	bool creatingScene = false;
 	bool swapAfterTake = true;
-	bool showAllDestinations = false;
+	bool showAllDestinations = true;
+	std::string language;
 
 	void LoadSettings();
 	void SaveSettings() const;
