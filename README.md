@@ -4,26 +4,31 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.1 — prototype non testé dans OBS**. Le code compile sans
-> avertissement contre les en-têtes d'OBS 31.1.1 et de Qt 6.8, mais il n'a pas
-> encore tourné dans OBS. Une seule destination. Pas encore de blending, ni de
-> sorties DeckLink / NDI / stream propres à la destination.
+> Statut : **V0.2 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.1 a été testée dans OBS, la V0.2 pas encore.
 
-## Ce que fait la V0.1
+## Ce que fait la V0.2
 
-- Un dock **« Destination 1 »** dans OBS (menu *Docks*).
-- Un canvas OBS dédié, en 1920×1080 par défaut (bouton *Résolution…*), à la
-  même cadence que le canvas principal.
-- Des scènes propres à la destination (boutons + / −).
-- Dans chaque scène : ajout de **sources OBS existantes** (caméras, NDI,
-  médias, navigateurs…) ou de **scènes du canvas principal**. La source est
-  ajustée au cadre (pas encore d'édition à la souris).
-- **PREVIEW / PROGRAM** côte à côte, avec tally (vert / rouge) dans la liste.
-- Transitions : type (Cut, Fondu, Glissement, Balayage…), durée, boutons
-  **CUT** et **AUTO**.
-- **Projecteur** : sortie Program en plein écran sur l'écran choisi
-  (Échap pour fermer, double-clic pour passer en fenêtre), ou en fenêtre.
-- Sauvegarde dans la collection de scènes OBS.
+- **Scènes communes** : une scène OBS couvre une ou plusieurs destinations,
+  choisies à sa création (y compris quand on crée la scène depuis OBS).
+  Chaque destination a sa propre version de la scène : sources et placement.
+- **Destination par défaut** = le canvas principal d'OBS (Paramètres → Vidéo),
+  avec son stream, son enregistrement et sa transition.
+- **Vue Studio** (menu Outils, barre d'outils « Vue Studio », raccourci ;
+  Échap pour quitter) : PREVIEW et PROGRAM côte à côte, avec seulement les
+  destinations couvertes par la scène sélectionnée, empilées verticalement.
+- **Édition à la souris** dans le PREVIEW : sélectionner, déplacer
+  (aimantation aux bords et au centre, Ctrl pour la couper), redimensionner
+  (Maj pour libérer les proportions), recadrer (Alt + poignée), flèches pour
+  décaler, Suppr pour retirer, clic droit pour ajuster / étirer / ordre /
+  propriétés / filtres.
+- **TAKE global** (AUTO ou CUT) : chaque destination couverte bascule avec sa
+  propre transition. **Verrou** par destination pour qu'elle ignore le TAKE
+  global, et **TAKE** individuel.
+- **Suivre les scènes d'OBS** (option) : un changement de scène fait dans OBS
+  entraîne les autres destinations.
+- Plusieurs destinations, chacune avec sa résolution, sa transition et son
+  projecteur plein écran.
 
 ## Compatibilité
 
@@ -61,7 +66,7 @@ compile pour les trois systèmes. Les fichiers sont dans l'onglet **Actions**
 | Version | Contenu |
 |---|---|
 | V0.1 | Une destination : scènes, PVW/PGM, transitions, projecteur |
-| V0.2 | N destinations, sélecteur, raccourcis clavier, réglages des transitions |
+| V0.2 | Scènes communes, vue Studio, édition à la souris, TAKE global, N destinations |
 | V0.3 | Layout : tranches, edge blending (courbe + gamma), corner pin |
 | V0.4 | Sorties par tranche : DeckLink, NDI ; stream et enregistrement |
 

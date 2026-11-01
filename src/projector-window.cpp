@@ -17,7 +17,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "projector-window.hpp"
-#include "destination-dock.hpp"
+#include "destination.hpp"
+#include "render-helpers.hpp"
 #include "qt-display.hpp"
 
 #include <obs-module.h>
@@ -74,7 +75,10 @@ void ProjectorWindow::Start()
 void ProjectorWindow::DrawCb(void *data, uint32_t cx, uint32_t cy)
 {
 	auto *window = static_cast<ProjectorWindow *>(data);
-	DrawDestination(window->dest, true, cx, cy);
+	Destination *d = window->dest;
+	if (!d || !d->Attached())
+		return;
+	DrawFitted(d->Width(), d->Height(), cx, cy, [d](float) { d->RenderProgram(); });
 }
 
 void ProjectorWindow::keyPressEvent(QKeyEvent *event)

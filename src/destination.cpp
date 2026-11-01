@@ -21,10 +21,26 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
 
+#include <cstring>
+
 /* Le canvas sert à la vidéo uniquement : pas de MIX_AUDIO, pour éviter
- * qu'une source présente à la fois dans OBS et dans la destination soit
- * mixée deux fois. L'audio reste géré par le mixeur principal d'OBS. */
+ * qu'une source présente dans plusieurs destinations soit mixée plusieurs
+ * fois. L'audio reste géré par le mixeur principal d'OBS. */
 static constexpr uint32_t DESTINATION_CANVAS_FLAGS = ACTIVATE | SCENE_REF;
+
+static std::string SourceUuid(obs_source_t *source)
+{
+	const char *uuid = source ? obs_source_get_uuid(source) : nullptr;
+	return uuid ? uuid : "";
+}
+
+Destination *Destination::CreateMain()
+{
+	auto *dest = new Destination();
+	dest->isMain = true;
+	dest->name = "Défaut (OBS)";
+	return dest;
+}
 
 Destination::Destination(std::string name_) : name(std::move(name_)) {}
 
@@ -33,12 +49,36 @@ Destination::~Destination()
 	Detach();
 }
 
+std::string Destination::Id() const
+{
+	if (isMain)
+		return MAIN_ID;
+	std::lock_guard<std::mutex> lock(mutex);
+	const char *uuid = canvas ? obs_canvas_get_uuid(canvas) : nullptr;
+	return uuid ? uuid : "";
+}
+
+void Destination::SetName(const std::string &newName)
+{
+	if (isMain || newName.empty())
+		return;
+	name = newName;
+	if (canvas)
+		obs_canvas_set_name(canvas, name.c_str());
+	/* Le nom réel peut avoir été dédoublonné par OBS. */
+	if (canvas && obs_canvas_get_name(canvas))
+		name = obs_canvas_get_name(canvas);
+}
+
 /* ------------------------------------------------------------------ */
 /* Canvas                                                               */
 /* ------------------------------------------------------------------ */
 
-bool Destination::Attach(uint32_t w, uint32_t h)
+bool Destination::Attach(uint32_t w, uint32_t h, const std::string &uuidHint)
 {
+	if (isMain)
+		return true;
+
 	if (w > 0 && h > 0) {
 		width = w;
 		height = h;
@@ -49,12 +89,18 @@ bool Destination::Attach(uint32_t w, uint32_t h)
 
 		struct obs_frontend_canvas_list list = {};
 		obs_frontend_get_canvases(&list);
-		for (size_t i = 0; i < list.canvases.num; i++) {
-			obs_canvas_t *c = list.canvases.array[i];
-			const char *cname = obs_canvas_get_name(c);
-			if (cname && name == cname && !obs_canvas_removed(c)) {
-				found = obs_canvas_get_ref(c);
-				break;
+		/* D'abord par UUID (stable), puis par nom. */
+		for (int pass = 0; pass < 2 && !found; pass++) {
+			for (size_t i = 0; i < list.canvases.num; i++) {
+				obs_canvas_t *c = list.canvases.array[i];
+				if (obs_canvas_removed(c))
+					continue;
+				const char *key = pass == 0 ? obs_canvas_get_uuid(c) : obs_canvas_get_name(c);
+				const std::string &wanted = pass == 0 ? uuidHint : name;
+				if (key && !wanted.empty() && wanted == key) {
+					found = obs_canvas_get_ref(c);
+					break;
+				}
 			}
 		}
 		obs_frontend_canvas_list_free(&list);
@@ -67,23 +113,18 @@ bool Destination::Attach(uint32_t w, uint32_t h)
 			return false;
 		}
 
-		std::lock_guard<std::mutex> lock(mutex);
-		canvas = found;
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			canvas = found;
+		}
+		if (obs_canvas_get_name(found))
+			name = obs_canvas_get_name(found);
 	}
 
 	StartVideo();
 
 	if (!transition)
 		CreateTransition(transitionType);
-
-	/* Remettre le Program sauvegardé à l'antenne, sans transition. */
-	OBSSource program;
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		program = OBSGetStrongRef(programScene);
-	}
-	if (program && transition)
-		obs_transition_set(transition, program);
 
 	obs_log(LOG_INFO, "[%s] destination prête (%ux%u)", name.c_str(), width, height);
 	return true;
@@ -120,163 +161,297 @@ void Destination::StartVideo()
 
 void Destination::Detach()
 {
-	OBSSource oldPreview;
-	obs_canvas_t *oldCanvas = nullptr;
+	obs_canvas_t *old = nullptr;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		oldPreview = OBSGetStrongRef(previewScene);
-		previewScene = nullptr;
-		oldCanvas = canvas;
+		old = canvas;
 		canvas = nullptr;
+		programScene = nullptr;
 	}
-
-	if (oldPreview)
-		obs_source_dec_showing(oldPreview);
-
-	if (oldCanvas) {
-		obs_canvas_set_channel(oldCanvas, 0, nullptr);
-		obs_canvas_release(oldCanvas);
+	if (old) {
+		obs_canvas_set_channel(old, 0, nullptr);
+		obs_canvas_release(old);
 	}
-
 	transition = nullptr;
 }
 
+void Destination::DestroyCanvas()
+{
+	if (isMain)
+		return;
+	obs_canvas_t *c = nullptr;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		c = canvas ? obs_canvas_get_ref(canvas) : nullptr;
+	}
+	Detach();
+	if (c) {
+		obs_frontend_remove_canvas(c);
+		obs_canvas_release(c);
+	}
+}
+
+bool Destination::Attached() const
+{
+	if (isMain)
+		return true;
+	std::lock_guard<std::mutex> lock(mutex);
+	return canvas != nullptr;
+}
+
+uint32_t Destination::Width() const
+{
+	if (isMain) {
+		struct obs_video_info ovi = {};
+		return obs_get_video_info(&ovi) ? ovi.base_width : 1920;
+	}
+	return width;
+}
+
+uint32_t Destination::Height() const
+{
+	if (isMain) {
+		struct obs_video_info ovi = {};
+		return obs_get_video_info(&ovi) ? ovi.base_height : 1080;
+	}
+	return height;
+}
+
 /* ------------------------------------------------------------------ */
-/* Scènes                                                               */
+/* Scènes liées                                                         */
 /* ------------------------------------------------------------------ */
 
-std::vector<std::string> Destination::SceneNames() const
+OBSSource Destination::FindLinked(const std::string &mainUuid) const
 {
-	std::vector<std::string> names;
-	if (!canvas)
-		return names;
+	if (!canvas || mainUuid.empty())
+		return nullptr;
+
+	struct Ctx {
+		const std::string *uuid;
+		OBSSource found;
+	} ctx{&mainUuid, nullptr};
 
 	obs_canvas_enum_scenes(
 		canvas,
 		[](void *param, obs_source_t *source) {
-			auto *list = static_cast<std::vector<std::string> *>(param);
-			const char *n = obs_source_get_name(source);
-			if (n)
-				list->emplace_back(n);
+			auto *c = static_cast<Ctx *>(param);
+			OBSDataAutoRelease priv = obs_source_get_private_settings(source);
+			const char *link = obs_data_get_string(priv, LINK_KEY);
+			if (link && *c->uuid == link) {
+				c->found = source;
+				return false;
+			}
 			return true;
 		},
-		&names);
-	return names;
+		&ctx);
+	return ctx.found;
 }
 
-bool Destination::CreateScene(const std::string &sceneName)
+bool Destination::Covers(obs_source_t *mainScene) const
 {
-	if (!canvas || sceneName.empty())
+	if (!mainScene)
+		return false;
+	if (isMain) {
+		OBSDataAutoRelease priv = obs_source_get_private_settings(mainScene);
+		return !obs_data_get_bool(priv, EXCLUDE_MAIN_KEY);
+	}
+	return FindLinked(SourceUuid(mainScene)) != nullptr;
+}
+
+OBSSource Destination::LinkedScene(obs_source_t *mainScene) const
+{
+	if (!mainScene)
+		return nullptr;
+	if (isMain)
+		return Covers(mainScene) ? OBSSource(mainScene) : OBSSource();
+	return FindLinked(SourceUuid(mainScene));
+}
+
+bool Destination::AddCoverage(obs_source_t *mainScene)
+{
+	if (!mainScene)
 		return false;
 
-	OBSSourceAutoRelease existing = obs_canvas_get_source_by_name(canvas, sceneName.c_str());
-	if (existing)
-		return false;
+	if (isMain) {
+		OBSDataAutoRelease priv = obs_source_get_private_settings(mainScene);
+		obs_data_set_bool(priv, EXCLUDE_MAIN_KEY, false);
+		return true;
+	}
 
-	obs_scene_t *scene = obs_canvas_scene_create(canvas, sceneName.c_str());
+	if (!canvas)
+		return false;
+	if (FindLinked(SourceUuid(mainScene)))
+		return true;
+
+	const char *sceneName = obs_source_get_name(mainScene);
+	obs_scene_t *scene = obs_canvas_scene_create(canvas, sceneName ? sceneName : "Scene");
 	if (!scene)
 		return false;
+
+	obs_source_t *source = obs_scene_get_source(scene);
+	OBSDataAutoRelease priv = obs_source_get_private_settings(source);
+	obs_data_set_string(priv, LINK_KEY, SourceUuid(mainScene).c_str());
+
 	/* Le canvas (SCENE_REF) garde sa propre référence. */
 	obs_scene_release(scene);
 	return true;
 }
 
-void Destination::RemoveScene(const std::string &sceneName)
+void Destination::RemoveCoverage(obs_source_t *mainScene)
 {
-	OBSSourceAutoRelease source = GetSceneSource(sceneName);
-	if (!source)
+	if (!mainScene)
 		return;
 
-	bool wasPreview = false;
+	if (isMain) {
+		OBSDataAutoRelease priv = obs_source_get_private_settings(mainScene);
+		obs_data_set_bool(priv, EXCLUDE_MAIN_KEY, true);
+		return;
+	}
+
+	OBSSource linked = FindLinked(SourceUuid(mainScene));
+	if (!linked)
+		return;
+
+	bool wasProgram = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		if (obs_weak_source_references_source(previewScene, source)) {
-			wasPreview = true;
-			previewScene = nullptr;
-		}
-		if (obs_weak_source_references_source(programScene, source))
+		wasProgram = obs_weak_source_references_source(programScene, linked);
+		if (wasProgram)
 			programScene = nullptr;
 	}
-	if (wasPreview)
-		obs_source_dec_showing(source);
-
-	if (transition) {
-		OBSSourceAutoRelease active = obs_transition_get_active_source(transition);
-		if (active == source.Get())
-			obs_transition_set(transition, nullptr);
+	if (wasProgram && transition) {
+		obs_transition_force_stop(transition);
+		obs_transition_set(transition, nullptr);
 	}
-
-	obs_source_remove(source);
+	obs_source_remove(linked);
 }
 
-OBSSourceAutoRelease Destination::GetSceneSource(const std::string &sceneName) const
+void Destination::SyncWithMainScenes(const std::vector<OBSSource> &mainScenes)
 {
-	if (!canvas || sceneName.empty())
-		return nullptr;
-	return obs_canvas_get_source_by_name(canvas, sceneName.c_str());
-}
+	if (isMain || !canvas)
+		return;
 
-bool Destination::AddSourceToScene(const std::string &sceneName, obs_source_t *source)
-{
-	if (!canvas || !source)
-		return false;
+	struct Entry {
+		OBSSource source;
+		std::string link;
+	};
+	std::vector<Entry> linked;
+	obs_canvas_enum_scenes(
+		canvas,
+		[](void *param, obs_source_t *source) {
+			auto *list = static_cast<std::vector<Entry> *>(param);
+			OBSDataAutoRelease priv = obs_source_get_private_settings(source);
+			const char *link = obs_data_get_string(priv, LINK_KEY);
+			if (link && *link)
+				list->push_back({OBSSource(source), link});
+			return true;
+		},
+		&linked);
 
-	OBSSceneAutoRelease scene = obs_canvas_get_scene_by_name(canvas, sceneName.c_str());
-	if (!scene)
-		return false;
+	for (auto &entry : linked) {
+		obs_source_t *main = nullptr;
+		for (auto &s : mainScenes) {
+			if (SourceUuid(s) == entry.link) {
+				main = s;
+				break;
+			}
+		}
 
-	/* Éviter d'imbriquer une scène dans elle-même. */
-	if (obs_scene_get_source(scene) == source)
-		return false;
+		if (!main) {
+			/* La scène OBS a été supprimée : la scène liée aussi. */
+			bool wasProgram = false;
+			{
+				std::lock_guard<std::mutex> lock(mutex);
+				wasProgram = obs_weak_source_references_source(programScene, entry.source);
+				if (wasProgram)
+					programScene = nullptr;
+			}
+			if (wasProgram && transition)
+				obs_transition_set(transition, nullptr);
+			obs_source_remove(entry.source);
+			continue;
+		}
 
-	obs_sceneitem_t *item = obs_scene_add(scene, source);
-	if (!item)
-		return false;
-
-	/* V0.1 : pas d'édition interactive, la source est ajustée au cadre. */
-	struct vec2 bounds;
-	vec2_set(&bounds, float(width), float(height));
-	obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
-	obs_sceneitem_set_bounds_alignment(item, OBS_ALIGN_CENTER);
-	obs_sceneitem_set_bounds(item, &bounds);
-	return true;
+		const char *mainName = obs_source_get_name(main);
+		const char *linkedName = obs_source_get_name(entry.source);
+		if (mainName && linkedName && strcmp(mainName, linkedName) != 0)
+			obs_source_set_name(entry.source, mainName);
+	}
 }
 
 /* ------------------------------------------------------------------ */
-/* Preview / Program                                                    */
+/* Program                                                              */
 /* ------------------------------------------------------------------ */
 
-void Destination::SetPreviewScene(const std::string &sceneName)
+static OBSSource FindFrontendTransition(const char *id)
 {
-	OBSSourceAutoRelease next = GetSceneSource(sceneName);
+	OBSSource found;
+	struct obs_frontend_source_list list = {};
+	obs_frontend_get_transitions(&list);
+	for (size_t i = 0; i < list.sources.num; i++) {
+		const char *tid = obs_source_get_id(list.sources.array[i]);
+		if (tid && strcmp(tid, id) == 0) {
+			found = list.sources.array[i];
+			break;
+		}
+	}
+	obs_frontend_source_list_free(&list);
+	return found;
+}
 
-	OBSSource previous;
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		previous = OBSGetStrongRef(previewScene);
-		if (previous == next.Get())
+void Destination::Take(obs_source_t *linkedScene, bool cut)
+{
+	if (!linkedScene)
+		return;
+
+	if (isMain) {
+		/* La destination par défaut passe par OBS : sa transition, son
+		 * Program, son stream et son enregistrement. */
+		OBSSourceAutoRelease onAir = obs_frontend_get_current_scene();
+		if (onAir.Get() == linkedScene)
 			return;
-		previewScene = next ? OBSGetWeakRef(next.Get()) : OBSWeakSource();
+		OBSSourceAutoRelease current = obs_frontend_get_current_transition();
+		OBSSource cutTransition = cut ? FindFrontendTransition("cut_transition") : OBSSource();
+		if (cut && cutTransition && current && current.Get() != cutTransition.Get()) {
+			obs_frontend_set_current_transition(cutTransition);
+			obs_frontend_set_current_scene(linkedScene);
+			obs_frontend_set_current_transition(current);
+		} else {
+			obs_frontend_set_current_scene(linkedScene);
+		}
+		return;
 	}
 
-	/* La scène en Preview doit être « showing » pour que ses sources
-	 * (médias, navigateurs…) se rendent même si elle n'est pas à l'antenne. */
-	if (next)
-		obs_source_inc_showing(next);
-	if (previous)
-		obs_source_dec_showing(previous);
-}
+	if (!transition)
+		return;
 
-std::string Destination::PreviewSceneName() const
-{
+	{
+		/* Déjà à l'antenne : rien à faire (évite une double transition
+		 * quand OBS et le plugin déclenchent le même changement). */
+		std::lock_guard<std::mutex> lock(mutex);
+		if (obs_weak_source_references_source(programScene, linkedScene))
+			return;
+	}
+
+	const bool immediate = cut || transitionType == "cut_transition" || durationMs == 0;
+	if (immediate) {
+		obs_transition_force_stop(transition);
+		obs_transition_set(transition, linkedScene);
+	} else if (!obs_transition_start(transition, OBS_TRANSITION_MODE_AUTO, uint32_t(durationMs), linkedScene)) {
+		return; /* une transition est déjà en cours */
+	}
+
 	std::lock_guard<std::mutex> lock(mutex);
-	OBSSource s = OBSGetStrongRef(previewScene);
-	const char *n = s ? obs_source_get_name(s) : nullptr;
-	return n ? n : "";
+	programScene = OBSGetWeakRef(linkedScene);
 }
 
 std::string Destination::ProgramSceneName() const
 {
+	if (isMain) {
+		OBSSourceAutoRelease current = obs_frontend_get_current_scene();
+		const char *n = current ? obs_source_get_name(current) : nullptr;
+		return n ? n : "";
+	}
 	std::lock_guard<std::mutex> lock(mutex);
 	OBSSource s = OBSGetStrongRef(programScene);
 	const char *n = s ? obs_source_get_name(s) : nullptr;
@@ -293,8 +468,9 @@ std::vector<std::pair<std::string, std::string>> Destination::TransitionTypes()
 	const char *id = nullptr;
 	size_t idx = 0;
 	while (obs_enum_transition_types(idx++, &id)) {
-		/* Les transitions qui ont besoin de réglages (stinger, luma wipe…)
-		 * arriveront en V0.2 avec une fenêtre de propriétés. */
+		/* Le stinger a besoin d'un fichier vidéo : réglages plus tard. */
+		if (strcmp(id, "obs_stinger_transition") == 0)
+			continue;
 		const char *display = obs_source_get_display_name(id);
 		types.emplace_back(id, display ? display : id);
 	}
@@ -303,6 +479,9 @@ std::vector<std::pair<std::string, std::string>> Destination::TransitionTypes()
 
 void Destination::CreateTransition(const std::string &id)
 {
+	if (isMain)
+		return;
+
 	std::string trName = name + " - transition";
 	OBSSourceAutoRelease next = obs_source_create_private(id.c_str(), trName.c_str(), nullptr);
 	if (!next) {
@@ -316,7 +495,6 @@ void Destination::CreateTransition(const std::string &id)
 
 	OBSSource previous = transition;
 	if (previous) {
-		/* Échange sans coupure de l'image à l'antenne. */
 		obs_transition_swap_begin(next, previous);
 		if (canvas)
 			obs_canvas_set_channel(canvas, 0, next);
@@ -337,83 +515,24 @@ void Destination::CreateTransition(const std::string &id)
 
 void Destination::SetTransitionType(const std::string &id)
 {
-	if (id.empty() || id == transitionType)
+	if (isMain || id.empty() || id == transitionType)
 		return;
 	transitionType = id;
-	CreateTransition(id);
-}
-
-std::string Destination::TransitionType() const
-{
-	return transitionType;
-}
-
-void Destination::SetTransitionDuration(int ms)
-{
-	durationMs = ms < 0 ? 0 : ms;
-}
-
-int Destination::TransitionDuration() const
-{
-	return durationMs;
-}
-
-void Destination::Cut()
-{
-	OBSSource preview;
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		preview = OBSGetStrongRef(previewScene);
-	}
-	if (!preview || !transition)
-		return;
-
-	obs_transition_force_stop(transition);
-	obs_transition_set(transition, preview);
-
-	std::lock_guard<std::mutex> lock(mutex);
-	programScene = OBSGetWeakRef(preview.Get());
-}
-
-void Destination::Take()
-{
-	if (transitionType == "cut_transition" || durationMs == 0) {
-		Cut();
-		return;
-	}
-
-	OBSSource preview;
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		preview = OBSGetStrongRef(previewScene);
-	}
-	if (!preview || !transition)
-		return;
-
-	if (!obs_transition_start(transition, OBS_TRANSITION_MODE_AUTO, uint32_t(durationMs), preview))
-		return; /* une transition est déjà en cours */
-
-	std::lock_guard<std::mutex> lock(mutex);
-	programScene = OBSGetWeakRef(preview.Get());
+	if (canvas)
+		CreateTransition(id);
 }
 
 /* ------------------------------------------------------------------ */
-/* Rendu (thread graphique)                                             */
+/* Rendu                                                                */
 /* ------------------------------------------------------------------ */
-
-void Destination::RenderPreview()
-{
-	OBSSource preview;
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		preview = OBSGetStrongRef(previewScene);
-	}
-	if (preview)
-		obs_source_video_render(preview);
-}
 
 void Destination::RenderProgram()
 {
+	if (isMain) {
+		obs_render_main_texture();
+		return;
+	}
+
 	obs_canvas_t *c = nullptr;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
@@ -421,8 +540,6 @@ void Destination::RenderProgram()
 	}
 	if (!c)
 		return;
-
-	/* Texture finale du canvas = exactement ce qui part vers les sorties. */
 	obs_render_canvas_texture(c);
 	obs_canvas_release(c);
 }
@@ -433,40 +550,49 @@ void Destination::RenderProgram()
 
 void Destination::Save(obs_data_t *data) const
 {
+	obs_data_set_string(data, "id", Id().c_str());
+	obs_data_set_bool(data, "main", isMain);
+	obs_data_set_bool(data, "locked", locked);
+	if (isMain)
+		return;
+
 	obs_data_set_string(data, "name", name.c_str());
 	obs_data_set_int(data, "width", width);
 	obs_data_set_int(data, "height", height);
 	obs_data_set_string(data, "transition", transitionType.c_str());
 	obs_data_set_int(data, "transition_duration", durationMs);
-	obs_data_set_string(data, "preview_scene", PreviewSceneName().c_str());
-	obs_data_set_string(data, "program_scene", ProgramSceneName().c_str());
+
+	OBSSource program;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		program = OBSGetStrongRef(programScene);
+	}
+	OBSDataAutoRelease priv = program ? obs_source_get_private_settings(program) : nullptr;
+	obs_data_set_string(data, "program_link", priv ? obs_data_get_string(priv, LINK_KEY) : "");
 }
 
 void Destination::Load(obs_data_t *data)
 {
+	locked = obs_data_get_bool(data, "locked");
+	if (isMain)
+		return;
+
 	obs_data_set_default_int(data, "width", 1920);
 	obs_data_set_default_int(data, "height", 1080);
 	obs_data_set_default_string(data, "transition", "fade_transition");
 	obs_data_set_default_int(data, "transition_duration", 500);
 
-	uint32_t w = uint32_t(obs_data_get_int(data, "width"));
-	uint32_t h = uint32_t(obs_data_get_int(data, "height"));
+	name = obs_data_get_string(data, "name");
 	transitionType = obs_data_get_string(data, "transition");
 	durationMs = int(obs_data_get_int(data, "transition_duration"));
 
-	/* Attach avant de résoudre les noms de scènes (il faut le canvas). */
-	Attach(w, h);
+	Attach(uint32_t(obs_data_get_int(data, "width")), uint32_t(obs_data_get_int(data, "height")),
+	       obs_data_get_string(data, "id"));
 
-	std::string programName = obs_data_get_string(data, "program_scene");
-	OBSSourceAutoRelease program = GetSceneSource(programName);
-	if (program) {
-		{
-			std::lock_guard<std::mutex> lock(mutex);
-			programScene = OBSGetWeakRef(program.Get());
-		}
-		if (transition)
-			obs_transition_set(transition, program);
+	OBSSource program = FindLinked(obs_data_get_string(data, "program_link"));
+	if (program && transition) {
+		obs_transition_set(transition, program);
+		std::lock_guard<std::mutex> lock(mutex);
+		programScene = OBSGetWeakRef(program.Get());
 	}
-
-	SetPreviewScene(obs_data_get_string(data, "preview_scene"));
 }

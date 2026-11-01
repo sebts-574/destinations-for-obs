@@ -26,80 +26,100 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <vector>
 
 /*
- * Une Destination = un canvas OBS dédié avec :
- *  - ses propres scènes,
- *  - une scène en Preview (rendue uniquement dans l'interface),
- *  - une sortie Program (canal 0 du canvas = une transition privée),
- *  - un type de transition et une durée.
- *
- * Cette classe ne dépend que de libobs + obs-frontend-api (pas de Qt),
- * pour pouvoir être réutilisée quand on passera à N destinations (V0.2).
+ * Modèle V0.2
+ * -----------
+ * - Les scènes OBS (canvas principal) sont la référence : une « scène » du
+ *   plugin = une scène OBS.
+ * - Chaque destination supplémentaire a son propre canvas. Pour chaque scène
+ *   OBS qu'elle couvre, elle possède une scène « liée » dans son canvas, avec
+ *   ses propres sources et placements. Le lien est stocké dans les réglages
+ *   privés de la scène liée (clé LINK_KEY = UUID de la scène OBS).
+ * - La destination par défaut est le canvas principal d'OBS lui-même. Une
+ *   scène OBS la couvre sauf si elle porte le drapeau EXCLUDE_MAIN_KEY.
  */
 class Destination {
 public:
+	static constexpr const char *MAIN_ID = "main";
+	static constexpr const char *LINK_KEY = "destinations_link";
+	static constexpr const char *EXCLUDE_MAIN_KEY = "destinations_exclude_main";
+
+	/* Destination par défaut = canvas principal d'OBS. */
+	static Destination *CreateMain();
+	/* Destination supplémentaire avec son propre canvas. */
 	explicit Destination(std::string name);
 	~Destination();
 
 	Destination(const Destination &) = delete;
 	Destination &operator=(const Destination &) = delete;
 
-	/* Trouve le canvas existant (chargé avec la collection de scènes)
-	 * ou le crée, puis démarre sa vidéo. */
-	bool Attach(uint32_t width, uint32_t height);
-	/* Libère les références (appelé au nettoyage de la collection). */
-	void Detach();
-	bool Attached() const { return canvas != nullptr; }
-
+	bool IsMain() const { return isMain; }
+	std::string Id() const;
 	const std::string &Name() const { return name; }
-	uint32_t Width() const { return width; }
-	uint32_t Height() const { return height; }
+	void SetName(const std::string &newName);
 
-	/* --- Scènes --- */
-	std::vector<std::string> SceneNames() const;
-	bool CreateScene(const std::string &sceneName);
-	void RemoveScene(const std::string &sceneName);
-	OBSSourceAutoRelease GetSceneSource(const std::string &sceneName) const;
+	/* Trouve le canvas (par UUID puis par nom) ou le crée, puis démarre sa
+	 * vidéo. Sans effet sur la destination par défaut. */
+	bool Attach(uint32_t width, uint32_t height, const std::string &uuidHint = "");
+	void Detach();
+	/* Supprime définitivement le canvas et ses scènes. */
+	void DestroyCanvas();
+	bool Attached() const;
 
-	/* Ajoute une source existante (entrée ou scène du canvas principal)
-	 * dans une scène de la destination, ajustée au cadre. */
-	bool AddSourceToScene(const std::string &sceneName, obs_source_t *source);
+	uint32_t Width() const;
+	uint32_t Height() const;
 
-	/* --- Preview / Program --- */
-	void SetPreviewScene(const std::string &sceneName);
-	std::string PreviewSceneName() const;
+	/* Verrouillée : ignorée par le TAKE global (reste sur son Program). */
+	bool Locked() const { return locked; }
+	void SetLocked(bool value) { locked = value; }
+
+	/* --- Scènes liées --- */
+	bool Covers(obs_source_t *mainScene) const;
+	/* Scène à rendre / à prendre pour cette destination (la scène OBS
+	 * elle-même pour la destination par défaut). Vide si non couverte. */
+	OBSSource LinkedScene(obs_source_t *mainScene) const;
+	bool AddCoverage(obs_source_t *mainScene);
+	void RemoveCoverage(obs_source_t *mainScene);
+	/* Renomme les scènes liées et supprime celles dont la scène OBS a
+	 * disparu. */
+	void SyncWithMainScenes(const std::vector<OBSSource> &mainScenes);
+
+	/* --- Program --- */
+	void Take(obs_source_t *linkedScene, bool cut);
 	std::string ProgramSceneName() const;
 
-	/* --- Transitions --- */
+	/* --- Transitions (destinations supplémentaires ; la destination par
+	 * défaut utilise la transition d'OBS) --- */
 	static std::vector<std::pair<std::string, std::string>> TransitionTypes();
 	void SetTransitionType(const std::string &id);
-	std::string TransitionType() const;
-	void SetTransitionDuration(int ms);
-	int TransitionDuration() const;
+	std::string TransitionType() const { return transitionType; }
+	void SetTransitionDuration(int ms) { durationMs = ms < 0 ? 0 : ms; }
+	int TransitionDuration() const { return durationMs; }
 
-	void Cut();  /* passage immédiat Preview -> Program */
-	void Take(); /* passage avec la transition choisie   */
-
-	/* --- Rendu (appelé depuis le thread graphique) --- */
-	void RenderPreview();
+	/* --- Rendu (thread graphique) --- */
 	void RenderProgram();
 
-	/* --- Persistance (dans la collection de scènes) --- */
+	/* --- Persistance --- */
 	void Save(obs_data_t *data) const;
 	void Load(obs_data_t *data);
 
 private:
+	Destination() = default;
+
+	OBSSource FindLinked(const std::string &mainUuid) const;
 	void CreateTransition(const std::string &id);
 	void StartVideo();
 
+	bool isMain = false;
 	std::string name;
+	bool locked = false;
+
 	obs_canvas_t *canvas = nullptr;
 	uint32_t width = 1920;
 	uint32_t height = 1080;
 
-	/* Protège uniquement les références lues par le thread graphique.
-	 * Ne jamais appeler libobs en tenant ce verrou. */
+	/* Protège uniquement ce que lit le thread graphique. Ne jamais appeler
+	 * libobs en tenant ce verrou. */
 	mutable std::mutex mutex;
-	OBSWeakSource previewScene;
 	OBSWeakSource programScene;
 	OBSSource transition;
 	std::string transitionType = "fade_transition";

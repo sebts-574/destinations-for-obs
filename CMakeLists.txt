@@ -47,10 +47,20 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.cpp
+    src/manager.cpp
+    src/manager.hpp
     src/destination.cpp
     src/destination.hpp
-    src/destination-dock.cpp
-    src/destination-dock.hpp
+    src/studio-window.cpp
+    src/studio-window.hpp
+    src/tile-grid.cpp
+    src/tile-grid.hpp
+    src/scene-editor.cpp
+    src/scene-editor.hpp
+    src/render-helpers.cpp
+    src/render-helpers.hpp
+    src/dialogs.cpp
+    src/dialogs.hpp
     src/projector-window.cpp
     src/projector-window.hpp
     src/qt-display.cpp
