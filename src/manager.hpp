@@ -63,7 +63,8 @@ public:
 	/* Transition : chaque destination couverte et non verrouillée passe à
 	 * sa scène liée avec la transition d'OBS. Les destinations que la
 	 * scène ne couvre pas gardent leur Program. Le Preview reçoit ensuite
-	 * l'ancien Program, comme dans OBS. */
+	 * l'ancien Program, comme dans OBS, sauf
+	 * si le réglage SwapAfterTake est désactivé. */
 	void Take(bool cut);
 	void OnObsProgramChanged();
 
@@ -76,6 +77,17 @@ public:
 	/* Création de scènes par le plugin lui-même (scènes liées, copies à
 	 * l'antenne) : à ne pas traiter comme une nouvelle scène d'OBS. */
 	bool CreatingScene() const { return creatingScene || taking; }
+
+	/* --- Réglages (configuration utilisateur d'OBS, communs à toutes les
+	 * collections) --- */
+	/* Après une transition : true = l'ancien Program revient en Aperçu
+	 * (comme OBS), false = la scène passée à l'antenne reste en Aperçu. */
+	bool SwapAfterTake() const { return swapAfterTake; }
+	void SetSwapAfterTake(bool value);
+	/* true = toutes les destinations restent affichées ; false = seulement
+	 * celles de la scène sélectionnée. */
+	bool ShowAllDestinations() const { return showAllDestinations; }
+	void SetShowAllDestinations(bool value);
 	bool Ready() const { return ready; }
 
 signals:
@@ -86,6 +98,7 @@ signals:
 	void scenesChanged();
 	void previewChanged();
 	void programChanged();
+	void settingsChanged();
 
 private:
 	Manager();
@@ -97,4 +110,9 @@ private:
 	bool ready = false;
 	bool taking = false;
 	bool creatingScene = false;
+	bool swapAfterTake = true;
+	bool showAllDestinations = false;
+
+	void LoadSettings();
+	void SaveSettings() const;
 };

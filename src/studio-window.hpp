@@ -136,6 +136,9 @@ private:
 	void EditDestination(Destination *dest);
 	void DeleteDestination(Destination *dest);
 	void OpenProjector(Destination *dest, bool fullscreen);
+	void ApplySceneOrderFromList();
+	void ApplySourceOrderFromList();
+	void MoveScene(int delta);
 	void NewBlendedDestination();
 	void EditBlending(Destination *dest);
 	void RefreshBlendProjectors(Destination *dest);
@@ -171,6 +174,9 @@ private:
 	std::vector<OBSSource> showing;
 	std::vector<std::pair<Destination *, QPointer<ProjectorWindow>>> projectors;
 	bool refreshingSources = false;
+	bool refreshingScenes = false;
+	bool sceneOrderPending = false;
+	bool sourceOrderPending = false;
 	bool refreshingTransitions = false;
 	bool layoutRestored = false;
 

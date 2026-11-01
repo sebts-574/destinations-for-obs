@@ -33,6 +33,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScreen>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -231,6 +232,59 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 	if (addToExisting)
 		settings.addToExisting = addToExisting->isChecked();
 	return isMain || !settings.name.empty();
+}
+
+/* Choix entre deux options, avec une explication sous chacune. */
+static bool ChooseOption(QWidget *parent, const QString &title, const QString &intro, const QString &optionA,
+			 const QString &detailA, const QString &optionB, const QString &detailB, bool &chooseA)
+{
+	QDialog dialog(parent);
+	dialog.setWindowTitle(title);
+	dialog.setMinimumWidth(460);
+	auto *layout = new QVBoxLayout(&dialog);
+
+	auto *introLabel = new QLabel(intro, &dialog);
+	introLabel->setWordWrap(true);
+	layout->addWidget(introLabel);
+	layout->addSpacing(6);
+
+	auto addOption = [&](const QString &text, const QString &detail) {
+		auto *radio = new QRadioButton(text, &dialog);
+		layout->addWidget(radio);
+		auto *label = new QLabel(detail, &dialog);
+		label->setWordWrap(true);
+		label->setContentsMargins(24, 0, 0, 8);
+		label->setStyleSheet("color: palette(placeholder-text);");
+		layout->addWidget(label);
+		return radio;
+	};
+	QRadioButton *a = addOption(optionA, detailA);
+	QRadioButton *b = addOption(optionB, detailB);
+	(chooseA ? a : b)->setChecked(true);
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addWidget(buttons);
+
+	if (dialog.exec() != QDialog::Accepted)
+		return false;
+	chooseA = a->isChecked();
+	return true;
+}
+
+bool EditAfterTakeSetting(QWidget *parent, bool &swap)
+{
+	return ChooseOption(parent, Tr("MDS.SettingAfterTake"), Tr("MDS.SettingAfterTakeIntro"),
+			    Tr("MDS.SettingAfterTakeSwap"), Tr("MDS.SettingAfterTakeSwapTip"),
+			    Tr("MDS.SettingAfterTakeKeep"), Tr("MDS.SettingAfterTakeKeepTip"), swap);
+}
+
+bool EditDisplaySetting(QWidget *parent, bool &showAll)
+{
+	return ChooseOption(parent, Tr("MDS.SettingDisplay"), Tr("MDS.SettingDisplayIntro"),
+			    Tr("MDS.SettingDisplayAll"), Tr("MDS.SettingDisplayAllTip"), Tr("MDS.SettingDisplayScene"),
+			    Tr("MDS.SettingDisplaySceneTip"), showAll);
 }
 
 bool ConfirmDeleteDestination(QWidget *parent, Destination *dest)

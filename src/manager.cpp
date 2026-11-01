@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
+#include <util/config-file.h>
 
 Manager &Manager::Get()
 {
@@ -30,6 +31,7 @@ Manager &Manager::Get()
 Manager::Manager()
 {
 	destinations.emplace_back(Destination::CreateMain());
+	LoadSettings();
 }
 
 std::vector<Destination *> Manager::Destinations() const
@@ -243,8 +245,8 @@ void Manager::Take(bool cut)
 	programScene = OBSGetWeakRef(preview.Get());
 	emit programChanged();
 
-	/* Comme OBS : l'ancien Program revient en Preview. */
-	if (oldProgram && oldProgram.Get() != preview.Get()) {
+	/* Comme OBS : l'ancien Program revient en Preview (réglable). */
+	if (swapAfterTake && oldProgram && oldProgram.Get() != preview.Get()) {
 		previewScene = OBSGetWeakRef(oldProgram.Get());
 		emit previewChanged();
 	}
@@ -338,4 +340,49 @@ void Manager::Reset()
 	}
 	previewScene = nullptr;
 	programScene = nullptr;
+}
+
+/* ------------------------------------------------------------------ */
+/* Réglages                                                             */
+/* ------------------------------------------------------------------ */
+
+static constexpr const char *SETTINGS_SECTION = "MultidestinationStudio";
+
+void Manager::LoadSettings()
+{
+	config_t *config = obs_frontend_get_user_config();
+	if (!config)
+		return;
+	config_set_default_bool(config, SETTINGS_SECTION, "SwapAfterTake", true);
+	config_set_default_bool(config, SETTINGS_SECTION, "ShowAllDestinations", false);
+	swapAfterTake = config_get_bool(config, SETTINGS_SECTION, "SwapAfterTake");
+	showAllDestinations = config_get_bool(config, SETTINGS_SECTION, "ShowAllDestinations");
+}
+
+void Manager::SaveSettings() const
+{
+	config_t *config = obs_frontend_get_user_config();
+	if (!config)
+		return;
+	config_set_bool(config, SETTINGS_SECTION, "SwapAfterTake", swapAfterTake);
+	config_set_bool(config, SETTINGS_SECTION, "ShowAllDestinations", showAllDestinations);
+	config_save_safe(config, "tmp", nullptr);
+}
+
+void Manager::SetSwapAfterTake(bool value)
+{
+	if (swapAfterTake == value)
+		return;
+	swapAfterTake = value;
+	SaveSettings();
+	emit settingsChanged();
+}
+
+void Manager::SetShowAllDestinations(bool value)
+{
+	if (showAllDestinations == value)
+		return;
+	showAllDestinations = value;
+	SaveSettings();
+	emit settingsChanged();
 }

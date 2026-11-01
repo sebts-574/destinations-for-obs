@@ -75,6 +75,9 @@ public:
 	/* Point du canvas sous une position de la tuile (pour le glisser-déposer). */
 	bool CanvasPointAt(const QPoint &tilePos, float &x, float &y) const;
 
+protected:
+	void resizeEvent(QResizeEvent *event) override;
+
 signals:
 	void activated(TileWidget *tile);
 	void selectionChanged(TileWidget *tile, qint64 itemId);
@@ -87,6 +90,8 @@ private:
 	static void DrawCb(void *data, uint32_t cx, uint32_t cy);
 	bool ToCanvas(const QPointF &widgetPos, float &x, float &y, float &screenScale) const;
 	OBSSceneItem SelectedSceneItem() const;
+	/* Texte des boutons Agrandir / Verrouiller adapté à la largeur. */
+	void FitHeaderButtons();
 
 	Destination *dest;
 	bool program;

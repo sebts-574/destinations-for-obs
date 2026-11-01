@@ -4,8 +4,8 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.6 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.5 a été testée dans OBS (sauf l'Output blending), la V0.6 pas encore.
+> Statut : **V0.7 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.6 a été testée dans OBS (sauf l'Output blending), la V0.7 pas encore.
 
 ## Installer
 
@@ -20,6 +20,22 @@ build → Artifacts) :
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.7
+
+- Ordre des scènes et des sources : glisser-déposer dans les listes,
+  boutons ↑ / ↓ et menu clic droit (monter, descendre, en haut, en bas).
+  L'ordre des scènes est celui de la liste de scènes d'OBS.
+- Nouveau menu « Configuration Settings », à côté de Docks :
+  - « Après une transition… » : l'ancien Programme revient en Aperçu (comme
+    OBS), ou la scène passée à l'antenne reste en Aperçu ;
+  - « Destinations affichées… » : toutes les destinations en permanence
+    (une destination absente de la scène a un Aperçu vide), ou seulement
+    celles de la scène sélectionnée.
+  Les réglages sont gardés dans la configuration d'OBS.
+- Boutons Agrandir / Verrouiller : taille du texte adaptée à la largeur,
+  symbole seul quand la place manque.
+- Titres « Aperçu » et « Programme » au-dessus des destinations.
 
 ## Nouveautés V0.6
 

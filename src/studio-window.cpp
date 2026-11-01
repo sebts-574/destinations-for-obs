@@ -29,6 +29,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "undo.hpp"
 
 #include <obs-frontend-api.h>
+#include <plugin-support.h>
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -149,6 +150,7 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 
 	Manager &m = Manager::Get();
 	connect(&m, &Manager::previewChanged, this, &StudioWindow::RebuildGrids);
+	connect(&m, &Manager::settingsChanged, this, [this]() { UpdateGrids(true); });
 	connect(&m, &Manager::scenesChanged, this, [this]() {
 		RefreshScenes();
 		RebuildGrids();
@@ -210,11 +212,11 @@ void StudioWindow::BuildCentral()
 		auto *l = new QVBoxLayout(col);
 		l->setContentsMargins(0, 0, 0, 0);
 		l->setSpacing(2);
-		grid->setParent(col);
-		l->addWidget(grid, 1);
 		auto *t = new QLabel(label, col);
 		t->setAlignment(Qt::AlignCenter);
 		l->addWidget(t);
+		grid->setParent(col);
+		l->addWidget(grid, 1);
 		return col;
 	};
 
@@ -254,6 +256,16 @@ void StudioWindow::BuildDocks()
 {
 	/* --- Scènes --- */
 	sceneList = new QListWidget(this);
+	sceneList->setDragDropMode(QAbstractItemView::InternalMove);
+	sceneList->setDefaultDropAction(Qt::MoveAction);
+	auto sceneOrderChanged = [this]() {
+		if (refreshingScenes || sceneOrderPending)
+			return;
+		sceneOrderPending = true;
+		QTimer::singleShot(0, this, &StudioWindow::ApplySceneOrderFromList);
+	};
+	connect(sceneList->model(), &QAbstractItemModel::rowsMoved, this, sceneOrderChanged);
+	connect(sceneList->model(), &QAbstractItemModel::rowsRemoved, this, sceneOrderChanged);
 	connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
 		OBSSource scene = SelectedScene();
 		if (scene)
@@ -267,6 +279,15 @@ void StudioWindow::BuildDocks()
 		if (scene) {
 			connect(menu.addAction(Tr("MDS.SceneSettingsMenu")), &QAction::triggered, this,
 				[this, scene]() { EditScene(scene); });
+			menu.addSeparator();
+			connect(menu.addAction(Tr("MDS.MoveUp")), &QAction::triggered, this,
+				[this]() { MoveScene(-1); });
+			connect(menu.addAction(Tr("MDS.MoveDown")), &QAction::triggered, this,
+				[this]() { MoveScene(1); });
+			connect(menu.addAction(Tr("MDS.MoveTop")), &QAction::triggered, this,
+				[this]() { MoveScene(-sceneList->count()); });
+			connect(menu.addAction(Tr("MDS.MoveBottom")), &QAction::triggered, this,
+				[this]() { MoveScene(sceneList->count()); });
 			menu.addSeparator();
 			connect(menu.addAction(Tr("MDS.RemoveScene")), &QAction::triggered, this,
 				[this, scene]() { RemoveScene(scene); });
@@ -284,11 +305,27 @@ void StudioWindow::BuildDocks()
 	sceneButtons->addWidget(addScene);
 	sceneButtons->addWidget(removeScene);
 	sceneButtons->addWidget(editScene);
+	auto *upScene = ToolButton("↑", Tr("MDS.MoveUp"), this);
+	auto *downScene = ToolButton("↓", Tr("MDS.MoveDown"), this);
+	connect(upScene, &QToolButton::clicked, this, [this]() { MoveScene(-1); });
+	connect(downScene, &QToolButton::clicked, this, [this]() { MoveScene(1); });
+	sceneButtons->addWidget(upScene);
+	sceneButtons->addWidget(downScene);
 	auto *scenesDock = Dock(Tr("MDS.Scenes"), "mdsScenesDock", ListPanel(sceneList, sceneButtons, this), this);
 
 	/* --- Sources --- */
 	sourceList = new QListWidget(this);
-	sourceList->setAcceptDrops(false);
+	/* Glisser-déposer pour changer l'ordre (haut de la liste = devant). */
+	sourceList->setDragDropMode(QAbstractItemView::InternalMove);
+	sourceList->setDefaultDropAction(Qt::MoveAction);
+	auto sourceOrderChanged = [this]() {
+		if (refreshingSources || sourceOrderPending)
+			return;
+		sourceOrderPending = true;
+		QTimer::singleShot(0, this, &StudioWindow::ApplySourceOrderFromList);
+	};
+	connect(sourceList->model(), &QAbstractItemModel::rowsMoved, this, sourceOrderChanged);
+	connect(sourceList->model(), &QAbstractItemModel::rowsRemoved, this, sourceOrderChanged);
 	connect(sourceList, &QListWidget::itemSelectionChanged, this, [this]() {
 		if (refreshingSources)
 			return;
@@ -504,6 +541,19 @@ void StudioWindow::BuildMenus()
 	for (QDockWidget *dock : findChildren<QDockWidget *>())
 		viewMenu->addAction(dock->toggleViewAction());
 
+	/* --- Réglages --- */
+	QMenu *settingsMenu = bar->addMenu(Tr("MDS.MenuSettings"));
+	connect(settingsMenu->addAction(Tr("MDS.SettingAfterTakeMenu")), &QAction::triggered, this, [this]() {
+		bool swap = Manager::Get().SwapAfterTake();
+		if (Dialogs::EditAfterTakeSetting(this, swap))
+			Manager::Get().SetSwapAfterTake(swap);
+	});
+	connect(settingsMenu->addAction(Tr("MDS.SettingDisplayMenu")), &QAction::triggered, this, [this]() {
+		bool showAll = Manager::Get().ShowAllDestinations();
+		if (Dialogs::EditDisplaySetting(this, showAll))
+			Manager::Get().SetShowAllDestinations(showAll);
+	});
+
 	auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
 	connect(escape, &QShortcut::activated, this, &StudioWindow::Close);
 }
@@ -642,10 +692,14 @@ void StudioWindow::UpdateShowing(const std::vector<OBSSource> &next)
 {
 	/* Les scènes en Aperçu doivent être « showing » pour que leurs
 	 * sources se rendent même hors antenne. */
-	for (auto &s : next)
-		obs_source_inc_showing(s);
-	for (auto &s : showing)
-		obs_source_dec_showing(s);
+	for (auto &s : next) {
+		if (s)
+			obs_source_inc_showing(s);
+	}
+	for (auto &s : showing) {
+		if (s)
+			obs_source_dec_showing(s);
+	}
 	showing = next;
 }
 
@@ -664,7 +718,9 @@ void StudioWindow::UpdateGrids(bool force)
 	if (preview) {
 		for (auto *d : m.ActiveDestinations()) {
 			OBSSource l = d->LinkedScene(preview);
-			if (!l)
+			/* Réglage : toutes les destinations, ou seulement celles de
+			 * la scène sélectionnée. */
+			if (!l && !m.ShowAllDestinations())
 				continue;
 			/* Vue agrandie : seulement la destination choisie. */
 			if (focusDest && d != focusDest)
@@ -842,6 +898,7 @@ void StudioWindow::RefreshScenes()
 	auto dests = m.ActiveDestinations();
 
 	const QSignalBlocker blocker(sceneList);
+	refreshingScenes = true;
 	sceneList->clear();
 	for (auto &scene : Manager::MainScenes()) {
 		auto *row = new QListWidgetItem(QString::fromUtf8(obs_source_get_name(scene)), sceneList);
@@ -856,7 +913,93 @@ void StudioWindow::RefreshScenes()
 		if (scene.Get() == preview.Get())
 			sceneList->setCurrentItem(row);
 	}
+	refreshingScenes = false;
 	RefreshTally();
+}
+
+/* Ordre des scènes : c'est la liste de scènes d'OBS qui fait foi (elle est
+ * enregistrée avec la collection). L'API d'OBS ne permet pas de la
+ * réordonner : on déplace directement ses lignes, sans changer la scène
+ * sélectionnée dans OBS. */
+static bool ReorderObsScenes(const QStringList &order)
+{
+	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+	QListWidget *list = main ? main->findChild<QListWidget *>("scenes") : nullptr;
+	if (!list)
+		return false;
+
+	QListWidgetItem *current = list->currentItem();
+	const QSignalBlocker blockList(list);
+	const QSignalBlocker blockSelection(list->selectionModel());
+	for (int i = 0; i < order.size() && i < list->count(); i++) {
+		int found = -1;
+		for (int k = i; k < list->count(); k++) {
+			if (list->item(k)->text() == order[i]) {
+				found = k;
+				break;
+			}
+		}
+		if (found < 0 || found == i)
+			continue;
+		QListWidgetItem *item = list->takeItem(found);
+		list->insertItem(i, item);
+	}
+	if (current)
+		list->setCurrentItem(current);
+	return true;
+}
+
+void StudioWindow::ApplySceneOrderFromList()
+{
+	sceneOrderPending = false;
+	QStringList order;
+	for (int i = 0; i < sceneList->count(); i++)
+		order << sceneList->item(i)->text();
+	if (!ReorderObsScenes(order))
+		obs_log(LOG_WARNING, "liste des scènes d'OBS introuvable : ordre non modifié");
+	RefreshScenes();
+}
+
+void StudioWindow::MoveScene(int delta)
+{
+	const int row = sceneList->currentRow();
+	if (row < 0)
+		return;
+	const int target = std::clamp(row + delta, 0, sceneList->count() - 1);
+	if (target == row)
+		return;
+	{
+		const QSignalBlocker blocker(sceneList);
+		refreshingScenes = true;
+		QListWidgetItem *item = sceneList->takeItem(row);
+		sceneList->insertItem(target, item);
+		sceneList->setCurrentItem(item);
+		refreshingScenes = false;
+	}
+	ApplySceneOrderFromList();
+}
+
+void StudioWindow::ApplySourceOrderFromList()
+{
+	sourceOrderPending = false;
+	obs_scene_t *s = ActiveScene();
+	if (!s)
+		return;
+	if (TileWidget *tile = ActiveTile()) {
+		if (QListWidgetItem *row = sourceList->currentItem())
+			tile->SetSelectedItem(row->data(Qt::UserRole).toLongLong());
+	}
+	Undo::PushSceneState(s);
+	/* Haut de la liste = devant : on place du fond vers l'avant. */
+	const int n = sourceList->count();
+	for (int pos = 0; pos < n; pos++) {
+		QListWidgetItem *row = sourceList->item(n - 1 - pos);
+		obs_sceneitem_t *item = obs_scene_find_sceneitem_by_id(s, row->data(Qt::UserRole).toLongLong());
+		if (item)
+			obs_sceneitem_set_order_position(item, pos);
+	}
+	RefreshSources();
+	AfterEdit();
 }
 
 OBSSource StudioWindow::SelectedScene() const

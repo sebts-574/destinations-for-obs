@@ -27,6 +27,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QFontMetrics>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -194,16 +195,56 @@ void TileWidget::RefreshHeader()
 	}
 	headerLabel->setText(text);
 
-	QFont font = headerLabel->font();
-	font.setBold(active.load());
-	headerLabel->setFont(font);
-
-	focusButton->setText(focused ? Tr("MDS.Unfocus") : Tr("MDS.Focus"));
+	if (!program && !LinkedScene())
+		headerLabel->setText(text + "  —  " + Tr("MDS.NotInScene"));
 
 	if (lockButton) {
 		const QSignalBlocker blocker(lockButton);
 		lockButton->setChecked(dest->Locked());
-		lockButton->setText(dest->Locked() ? Tr("MDS.Locked") : Tr("MDS.Lock"));
+	}
+	FitHeaderButtons();
+}
+
+void TileWidget::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	FitHeaderButtons();
+}
+
+void TileWidget::FitHeaderButtons()
+{
+	/* Taille de texte selon la largeur de la tuile, puis texte complet
+	 * (« ⛶ Agrandir ») ou symbole seul (« ⛶ ») si la place manque. Le
+	 * détail reste dans l'info-bulle. */
+	const int w = std::max(1, width());
+	QFont font = focusButton->font();
+	font.setPixelSize(std::clamp(w / 36, 10, 13));
+	headerLabel->setFont([&]() {
+		QFont f = font;
+		f.setBold(active.load());
+		return f;
+	}());
+
+	const QString focusFull = focused ? Tr("MDS.Unfocus") : Tr("MDS.Focus");
+	const QString lockFull = dest->Locked() ? Tr("MDS.Locked") : Tr("MDS.Lock");
+	auto symbol = [](const QString &text) {
+		return text.section(' ', 0, 0);
+	};
+
+	const QFontMetrics fm(font);
+	const int padding = 18;
+	int needed = fm.horizontalAdvance(focusFull) + padding;
+	if (lockButton)
+		needed += fm.horizontalAdvance(lockFull) + padding;
+	const int labelMin = std::min(fm.horizontalAdvance(headerLabel->text()), 160);
+	const bool full = needed + labelMin + 12 <= w;
+
+	focusButton->setFont(font);
+	focusButton->setText(full ? focusFull : symbol(focusFull));
+	focusButton->setMinimumWidth(0);
+	if (lockButton) {
+		lockButton->setFont(font);
+		lockButton->setText(full ? lockFull : symbol(lockFull));
 	}
 }
 

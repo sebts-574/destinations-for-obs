@@ -50,6 +50,13 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 /* « Êtes-vous sûr ? » avant de supprimer une destination. */
 bool ConfirmDeleteDestination(QWidget *parent, Destination *dest);
 
+/* Réglage : après une transition, l'ancien Program revient en Aperçu
+ * (swap = true) ou la scène passée à l'antenne reste en Aperçu. */
+bool EditAfterTakeSetting(QWidget *parent, bool &swap);
+/* Réglage : toutes les destinations affichées (showAll = true) ou
+ * seulement celles de la scène sélectionnée. */
+bool EditDisplaySetting(QWidget *parent, bool &showAll);
+
 /* Écran physique par son nom, ou nullptr. */
 QScreen *FindScreen(const std::string &name);
 QString ScreenLabel(QScreen *screen, int index);
