@@ -4,8 +4,8 @@ Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
 chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
 des surfaces de QLab. Nom de projet provisoire.
 
-> Statut : **V0.4 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.3 a été testée dans OBS, la V0.4 pas encore.
+> Statut : **V0.5 — prototype**. Compile pour macOS, Windows et Linux ;
+> la V0.4 a été testée dans OBS, la V0.5 pas encore.
 
 ## Installer
 
@@ -20,6 +20,27 @@ build → Artifacts) :
 - **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
 
 Fermer OBS avant d'installer.
+
+## Nouveautés V0.5
+
+- **Output blending** (menu Destinations → « Output blending… ») : une
+  destination répartie sur plusieurs sorties (vidéoprojecteurs).
+  - « Nouvelle sortie », chacune avec son écran ; on la glisse sur le layout.
+    Elle garde la forme de son écran et ne peut pas sortir du layout.
+  - Taille du layout réglable dès la première sortie ; les sorties suivent.
+  - Édition à la souris comme en Aperçu/Programme (aimant au centre, Maj =
+    ratio libre, flèches, Suppr, Ctrl+Z).
+  - Fondus automatiques sur les recouvrements (ou manuels), gamma, courbe,
+    niveau de noir, corner pin, mire.
+  - « Save & Create destination » ; ensuite « Output blending… » dans le
+    sous-menu ou les paramètres de la destination, avec « Save changes »
+    (grisé une fois enregistré) et « Close » (demande si non enregistré).
+  - « Ouvrir les sorties » : chaque sortie en plein écran sur son écran, les
+    réglages s'affichent en direct pendant l'édition.
+- Les retouches faites avec « Modifier le PGM » sont gardées dans la scène.
+- Les fichiers importés gardent leur taille d'origine, centrés.
+- Correction du décalage Aperçu / Programme sur les grandes destinations.
+- Les contours (destination, source) s'effacent quand on clique ailleurs.
 
 ## Nouveautés V0.4
 
@@ -115,8 +136,8 @@ compile pour les trois systèmes. Les fichiers sont dans l'onglet **Actions**
 | V0.2 | Scènes communes, vue Studio, édition à la souris, TAKE global, N destinations |
 | V0.3 | Multidestination Studio façon OBS, sources, mixeur, transition globale, menu Destinations |
 | V0.4 | Modifier le PGM, agrandir, annuler, glisser-déposer, médias, mixeur, installeurs |
-| V0.3 | Layout : tranches, edge blending (courbe + gamma), corner pin |
-| V0.4 | Sorties par tranche : DeckLink, NDI ; stream et enregistrement |
+| V0.5 | Output blending : sorties, fondus (courbe + gamma), niveau de noir, corner pin, mire |
+| Plus tard | Sorties DeckLink / NDI par sortie ; stream et enregistrement par destination |
 
 ## Arborescence
 

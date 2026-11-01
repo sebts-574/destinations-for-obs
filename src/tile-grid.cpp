@@ -220,7 +220,7 @@ void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 
 	const uint32_t w = d->Width();
 	const uint32_t h = d->Height();
-	const bool isActive = tile->active.load();
+	const bool isActive = tile->active.load() && tile->highlighted.load();
 	const bool canEdit = tile->editable.load();
 	const int64_t selected = tile->selectedId.load();
 
@@ -247,9 +247,11 @@ void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 			DrawOutline(1.5f * px, 1.5f * px, float(w) - 3.0f * px, float(h) - 3.0f * px, 1.5f * px,
 				    ACTIVE_FRAME_COLOR);
 
-		/* Sélection et guides seulement sur la tuile active. */
-		if (scene && isActive && canEdit)
-			SceneEditor::DrawSelection(obs_scene_from_source(scene), selected, screenScale, w, h);
+		/* Sélection et guides seulement sur la tuile active ; cadres
+		 * provisoires des médias toujours visibles. */
+		if (scene)
+			SceneEditor::DrawSelection(obs_scene_from_source(scene), (isActive && canEdit) ? selected : -1,
+						   screenScale, w, h);
 	});
 }
 
@@ -292,6 +294,7 @@ void TileWidget::MousePress(QMouseEvent *event)
 {
 	if (!editable.load())
 		return;
+	highlighted = true;
 	emit activated(this);
 
 	float x, y, s;
@@ -569,6 +572,7 @@ bool TileWidget::KeyPress(QKeyEvent *event)
 	pos.x += dx;
 	pos.y += dy;
 	obs_sceneitem_set_pos(item, &pos);
+	emit itemsChanged(this);
 	return true;
 }
 

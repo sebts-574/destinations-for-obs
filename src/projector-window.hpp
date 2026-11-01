@@ -22,20 +22,27 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QScreen>
 #include <QWidget>
 
+#include <atomic>
+#include <memory>
+
 class Destination;
+class BlendRenderer;
 class OBSQTDisplay;
 
 /* Sortie Program d'une destination, en plein écran sur un écran donné
- * (ou en fenêtre si aucun écran). Échap ferme le projecteur. */
+ * (ou en fenêtre si aucun écran). Échap ferme le projecteur.
+ * outputIndex >= 0 : une sortie d'une destination blendée (sa zone du
+ * layout, avec fondus et corner pin). */
 class ProjectorWindow : public QWidget {
 	Q_OBJECT
 
 public:
-	ProjectorWindow(Destination *destination, QScreen *screen);
+	ProjectorWindow(Destination *destination, QScreen *screen, int outputIndex = -1);
 	~ProjectorWindow() override;
 
 	void Start();
 	QScreen *TargetScreen() const { return target; }
+	int OutputIndex() const { return outputIndex; }
 
 protected:
 	void keyPressEvent(QKeyEvent *event) override;
@@ -47,4 +54,9 @@ private:
 	Destination *dest;
 	QPointer<QScreen> target;
 	OBSQTDisplay *display = nullptr;
+	int outputIndex = -1;
+	std::unique_ptr<BlendRenderer> blendRenderer;
+	/* Taille native de l'écran de sortie (pixels physiques). */
+	std::atomic<uint32_t> nativeW{0};
+	std::atomic<uint32_t> nativeH{0};
 };

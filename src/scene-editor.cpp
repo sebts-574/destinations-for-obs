@@ -20,6 +20,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "render-helpers.hpp"
 
 #include <cmath>
+#include <vector>
+
+#include <obs.hpp>
 
 namespace SceneEditor {
 
@@ -27,6 +30,7 @@ static constexpr uint32_t SELECTION_COLOR = 0xFF2ECC40; /* vert */
 static constexpr uint32_t OUTSIDE_COLOR = 0xFFFF9500;   /* orange : dépasse du cadre */
 static constexpr uint32_t HANDLE_COLOR = 0xFFFFFFFF;
 static constexpr uint32_t GUIDE_COLOR = 0xFF2ECC40;
+static constexpr uint32_t PLACEHOLDER_COLOR = 0xB0FFFFFF;
 
 static void AlignOffset(uint32_t align, float w, float h, float &ox, float &oy)
 {
@@ -37,6 +41,14 @@ static void AlignOffset(uint32_t align, float w, float h, float &ox, float &oy)
 bool UsesBounds(obs_sceneitem_t *item)
 {
 	return obs_sceneitem_get_bounds_type(item) != OBS_BOUNDS_NONE;
+}
+
+bool IsPlaceholder(obs_sceneitem_t *item)
+{
+	if (UsesBounds(item))
+		return false;
+	obs_source_t *source = obs_sceneitem_get_source(item);
+	return (obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) && obs_source_get_width(source) == 0;
 }
 
 bool IsRotated(obs_sceneitem_t *item)
@@ -71,6 +83,9 @@ bool GetBox(obs_sceneitem_t *item, Box &box)
 		obs_sceneitem_get_bounds(item, &bounds);
 		w = bounds.x;
 		h = bounds.y;
+	} else if (IsPlaceholder(item)) {
+		w = PLACEHOLDER_W;
+		h = PLACEHOLDER_H;
 	} else {
 		if (!CroppedSourceSize(item, w, h))
 			return false;
@@ -99,6 +114,17 @@ void SetBox(obs_sceneitem_t *item, const Box &box)
 {
 	if (!item || box.w < 1.0f || box.h < 1.0f)
 		return;
+
+	if (IsPlaceholder(item)) {
+		/* Taille inconnue : on ne fait que déplacer. */
+		float ox = 0.0f;
+		float oy = 0.0f;
+		AlignOffset(obs_sceneitem_get_alignment(item), PLACEHOLDER_W, PLACEHOLDER_H, ox, oy);
+		struct vec2 pos;
+		vec2_set(&pos, box.x + ox, box.y + oy);
+		obs_sceneitem_set_pos(item, &pos);
+		return;
+	}
 
 	if (UsesBounds(item)) {
 		struct vec2 bounds;
@@ -230,9 +256,61 @@ void SetTransform(obs_sceneitem_t *item, const Transform &t)
 	obs_sceneitem_set_crop(item, &t.crop);
 }
 
+void CopyLayout(obs_scene_t *from, obs_scene_t *to)
+{
+	if (!from || !to || from == to)
+		return;
+
+	struct Item {
+		OBSSource source;
+		Transform transform;
+		bool visible;
+		obs_sceneitem_t *item;
+	};
+	auto collect = [](obs_scene_t *scene) {
+		std::vector<Item> items;
+		obs_scene_enum_items(
+			scene,
+			[](obs_scene_t *, obs_sceneitem_t *it, void *param) {
+				auto *list = static_cast<std::vector<Item> *>(param);
+				list->push_back({OBSSource(obs_sceneitem_get_source(it)), GetTransform(it),
+						 obs_sceneitem_visible(it), it});
+				return true;
+			},
+			&items);
+		return items;
+	};
+
+	std::vector<Item> src = collect(from);
+	std::vector<Item> dst = collect(to);
+
+	bool sameSources = src.size() == dst.size();
+	for (size_t i = 0; sameSources && i < src.size(); i++)
+		sameSources = src[i].source.Get() == dst[i].source.Get();
+
+	if (sameSources) {
+		for (size_t i = 0; i < src.size(); i++) {
+			SetTransform(dst[i].item, src[i].transform);
+			obs_sceneitem_set_visible(dst[i].item, src[i].visible);
+		}
+		return;
+	}
+
+	/* Sources ajoutées ou retirées : on reconstruit dans le même ordre. */
+	for (auto &d : dst)
+		obs_sceneitem_remove(d.item);
+	for (auto &it : src) {
+		obs_sceneitem_t *added = obs_scene_add(to, it.source);
+		if (!added)
+			continue;
+		SetTransform(added, it.transform);
+		obs_sceneitem_set_visible(added, it.visible);
+	}
+}
+
 void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH)
 {
-	if (!scene || itemId < 0 || screenScale <= 0.0f)
+	if (!scene || screenScale <= 0.0f)
 		return;
 
 	struct Ctx {
@@ -246,12 +324,17 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 		scene,
 		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
 			auto *c = static_cast<Ctx *>(param);
-			if (obs_sceneitem_get_id(item) != c->id)
+			if (obs_sceneitem_get_id(item) != c->id) {
+				/* Média sans image : cadre provisoire toujours visible. */
+				Box ph;
+				if (obs_sceneitem_visible(item) && IsPlaceholder(item) && GetBox(item, ph))
+					DrawOutline(ph.x, ph.y, ph.w, ph.h, c->px, PLACEHOLDER_COLOR);
 				return true;
+			}
 
 			Box box;
 			if (!GetBox(item, box))
-				return false;
+				return true;
 
 			/* Guides quand la source est centrée sur le canvas. */
 			const float tol = 0.5f;
@@ -280,7 +363,7 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 					DrawSolidRect(xs[ix] - hs * 0.5f, ys[iy] - hs * 0.5f, hs, hs, HANDLE_COLOR);
 				}
 			}
-			return false;
+			return true;
 		},
 		&ctx);
 }

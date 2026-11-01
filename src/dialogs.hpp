@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <string>
 
 class Destination;
+class QComboBox;
 class QScreen;
 class QString;
 class QWidget;
@@ -40,6 +41,7 @@ struct DestinationSettings {
 	uint32_t height = 1080;
 	std::string outputScreen;   /* nom de l'écran, vide = aucun */
 	bool addToExisting = false; /* création uniquement */
+	bool openBlending = false;  /* « Output blending… » demandé */
 };
 
 /* Nouvelle destination (dest == nullptr) ou paramètres d'une destination. */
@@ -51,5 +53,7 @@ bool ConfirmDeleteDestination(QWidget *parent, Destination *dest);
 /* Écran physique par son nom, ou nullptr. */
 QScreen *FindScreen(const std::string &name);
 QString ScreenLabel(QScreen *screen, int index);
+/* Liste des écrans (« Aucun » en premier) ; data = nom de l'écran. */
+QComboBox *ScreenCombo(const std::string &current, QWidget *parent);
 
 } // namespace Dialogs

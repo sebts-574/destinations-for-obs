@@ -18,6 +18,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #pragma once
 
+#include "blend.hpp"
+
 #include <obs.hpp>
 
 #include <mutex>
@@ -42,6 +44,7 @@ public:
 	static constexpr const char *MAIN_ID = "main";
 	static constexpr const char *LINK_KEY = "destinations_link";
 	static constexpr const char *EXCLUDE_MAIN_KEY = "destinations_exclude_main";
+	static constexpr const char *LIVE_KEY = "destinations_live_copy";
 
 	/* Destination par défaut = canvas principal d'OBS. */
 	static Destination *CreateMain();
@@ -97,10 +100,25 @@ public:
 	/* Ce qui est réellement à l'antenne : une copie privée de la scène,
 	 * faite au moment de la transition. Vide si rien n'est à l'antenne. */
 	OBSSource LiveScene() const;
+	/* Scène d'origine de ce qui est à l'antenne. */
+	OBSSource ProgramOriginal() const;
+	/* « Modifier le PGM » : recopie la copie à l'antenne dans la scène. */
+	void KeepLiveEdits();
 
 	/* --- Écran de sortie physique (nom QScreen, vide = aucun) --- */
 	const std::string &OutputScreen() const { return outputScreen; }
 	void SetOutputScreen(const std::string &screen) { outputScreen = screen; }
+
+	/* --- Output blending (destinations supplémentaires uniquement) --- */
+	bool IsBlended() const;
+	BlendConfig Blend() const;
+	void SetBlend(const BlendConfig &config);
+	/* Réglages en cours d'édition, affichés sur les sorties ouvertes tant
+	 * que l'éditeur est ouvert. nullptr : revient aux réglages enregistrés. */
+	void SetBlendPreview(const BlendConfig *config);
+	/* Thread graphique : réglages d'une sortie à afficher. */
+	bool GetRenderOutput(size_t index, BlendOutput &out, uint32_t &layoutW, uint32_t &layoutH,
+			     bool &testPattern) const;
 
 	/* --- Rendu (thread graphique) --- */
 	void RenderProgram();
@@ -114,6 +132,9 @@ private:
 
 	OBSSource FindLinked(const std::string &mainUuid) const;
 	void CreateTransitionFrom(obs_source_t *templ);
+	OBSSource MakeLiveCopy(obs_source_t *linkedScene);
+	void PurgeRetiredCopies();
+	void RemoveStaleCopies();
 	void StartVideo();
 
 	bool isMain = false;
@@ -130,7 +151,11 @@ private:
 	mutable std::mutex mutex;
 	OBSWeakSource programScene;
 	OBSSource liveCopy;
+	std::vector<OBSSource> retired;
 	OBSSource transition;
 	std::string transitionSignature; /* id + réglages de la transition copiée */
 	std::string outputScreen;
+	BlendConfig blend;
+	BlendConfig blendPreview;
+	bool previewingBlend = false;
 };

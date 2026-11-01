@@ -59,6 +59,8 @@ public:
 	void SetActive(bool active);
 	bool Active() const { return active.load(); }
 	void SetFocused(bool focused);
+	/* Contours et sélection visibles (effacés quand on clique ailleurs). */
+	void SetHighlighted(bool value) { highlighted = value; }
 	void SetSelectedItem(int64_t id);
 	int64_t SelectedItem() const { return selectedId.load(); }
 	void RefreshHeader();
@@ -101,6 +103,7 @@ private:
 	std::atomic<int64_t> selectedId{-1};
 	std::atomic<bool> editable{false};
 	std::atomic<bool> active{false};
+	std::atomic<bool> highlighted{true};
 
 	/* Glisser-déposer en cours. */
 	enum class Drag { None, Move, Resize, Crop };

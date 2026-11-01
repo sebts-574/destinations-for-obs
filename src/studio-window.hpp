@@ -25,6 +25,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMainWindow>
 #include <QPointer>
 
+#include <string>
 #include <vector>
 
 class AudioMixer;
@@ -65,6 +66,7 @@ public:
 
 protected:
 	void closeEvent(QCloseEvent *event) override;
+	bool eventFilter(QObject *watched, QEvent *event) override;
 	void dragEnterEvent(QDragEnterEvent *event) override;
 	void dropEvent(QDropEvent *event) override;
 
@@ -87,6 +89,10 @@ private:
 	void SetModifyProgram(bool on);
 	void ToggleFocus(Destination *dest);
 	void UpdateMediaControls();
+	/* Après une modification : si elle a été faite dans le Programme, la
+	 * garder aussi dans la scène. */
+	void AfterEdit();
+	void SetHighlight(bool on);
 	void UpdateShowing(const std::vector<OBSSource> &next);
 
 	/* Scènes */
@@ -130,6 +136,10 @@ private:
 	void EditDestination(Destination *dest);
 	void DeleteDestination(Destination *dest);
 	void OpenProjector(Destination *dest, bool fullscreen);
+	void NewBlendedDestination();
+	void EditBlending(Destination *dest);
+	void RefreshBlendProjectors(Destination *dest);
+	std::string DefaultDestinationName() const;
 	void CloseProjectors(Destination *dest);
 	bool HasProjector(Destination *dest) const;
 

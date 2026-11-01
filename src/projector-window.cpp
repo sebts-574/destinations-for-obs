@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "projector-window.hpp"
+#include "blend-render.hpp"
 #include "destination.hpp"
 #include "render-helpers.hpp"
 #include "text.hpp"
@@ -27,13 +28,26 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QKeyEvent>
 #include <QVBoxLayout>
 
-ProjectorWindow::ProjectorWindow(Destination *destination, QScreen *screen)
+ProjectorWindow::ProjectorWindow(Destination *destination, QScreen *screen, int index)
 	: QWidget(nullptr, Qt::Window),
 	  dest(destination),
-	  target(screen)
+	  target(screen),
+	  outputIndex(index)
 {
 	setAttribute(Qt::WA_DeleteOnClose, true);
-	setWindowTitle(QString("%1 — %2").arg(Tr("MDS.Projector")).arg(QString::fromStdString(dest->Name())));
+	QString title = QString("%1 — %2").arg(Tr("MDS.Projector")).arg(QString::fromStdString(dest->Name()));
+	if (outputIndex >= 0) {
+		blendRenderer = std::make_unique<BlendRenderer>();
+		const BlendConfig config = dest->Blend();
+		if (size_t(outputIndex) < config.outputs.size())
+			title += " — " + QString::fromStdString(config.outputs[size_t(outputIndex)].name);
+	}
+	setWindowTitle(title);
+	if (target) {
+		const qreal ratio = target->devicePixelRatio();
+		nativeW = uint32_t(target->geometry().width() * ratio);
+		nativeH = uint32_t(target->geometry().height() * ratio);
+	}
 
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
@@ -77,6 +91,10 @@ void ProjectorWindow::DrawCb(void *data, uint32_t cx, uint32_t cy)
 	Destination *d = window->dest;
 	if (!d || !d->Attached())
 		return;
+	if (window->blendRenderer) {
+		window->blendRenderer->Draw(d, size_t(window->outputIndex), cx, cy, window->nativeW, window->nativeH);
+		return;
+	}
 	DrawFitted(d->Width(), d->Height(), cx, cy, [d](float) { d->RenderProgram(); });
 }
 

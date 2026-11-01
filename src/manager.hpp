@@ -73,7 +73,9 @@ public:
 	void ApplyLoad();
 	void Reset();
 
-	bool CreatingScene() const { return creatingScene; }
+	/* Création de scènes par le plugin lui-même (scènes liées, copies à
+	 * l'antenne) : à ne pas traiter comme une nouvelle scène d'OBS. */
+	bool CreatingScene() const { return creatingScene || taking; }
 	bool Ready() const { return ready; }
 
 signals:

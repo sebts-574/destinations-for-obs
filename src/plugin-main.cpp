@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
+#include "blend-render.hpp"
 #include "manager.hpp"
 #include "studio-window.hpp"
 #include "text.hpp"
@@ -237,6 +238,7 @@ static void CutHotkey(void *, obs_hotkey_id, obs_hotkey_t *, bool pressed)
 bool obs_module_load(void)
 {
 	obs_log(LOG_INFO, "plugin chargé (version %s)", PLUGIN_VERSION);
+	BlendRenderer::Init();
 	return true;
 }
 
@@ -276,5 +278,6 @@ void obs_module_unload(void)
 
 	/* La fenêtre et le bouton appartiennent à la fenêtre principale. */
 	studio = nullptr;
+	BlendRenderer::Shutdown();
 	obs_log(LOG_INFO, "plugin déchargé");
 }

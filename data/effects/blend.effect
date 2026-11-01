@@ -1,0 +1,95 @@
+// Destinations for OBS — Output blending.
+// Affiche une zone (region) du layout d'une destination sur une sortie,
+// avec fondu des bords (edge blending), correction gamma, relevé du noir
+// et mire de test.
+
+uniform float4x4 ViewProj;
+uniform texture2d image;
+
+uniform float4 region;      // x, y, w, h de la zone (fraction du layout)
+uniform float4 edges;       // fondus gauche, droite, haut, bas (fraction de la sortie)
+uniform float blend_gamma;  // gamma du projecteur
+uniform float curve;        // forme de la rampe (1 = linéaire)
+uniform float black_level;  // relevé du noir hors recouvrement
+uniform float test_pattern; // 1 = mire
+uniform float2 layout_size; // taille du layout en pixels
+
+sampler_state def_sampler {
+	Filter   = Linear;
+	AddressU = Clamp;
+	AddressV = Clamp;
+};
+
+struct VertInOut {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertInOut VSBlend(VertInOut vert_in)
+{
+	VertInOut vert_out;
+	vert_out.pos = mul(float4(vert_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = vert_in.uv;
+	return vert_out;
+}
+
+float Ramp(float t)
+{
+	t = saturate(t);
+	float a;
+	if (t < 0.5)
+		a = 0.5 * pow(2.0 * t, curve);
+	else
+		a = 1.0 - 0.5 * pow(2.0 * (1.0 - t), curve);
+	return pow(saturate(a), 1.0 / blend_gamma);
+}
+
+float EdgeFactor(float dist, float width)
+{
+	if (width <= 0.0)
+		return 1.0;
+	return Ramp(dist / width);
+}
+
+float3 Pattern(float2 uv)
+{
+	float2 p = uv * layout_size;
+	float2 d = abs(frac(p / 100.0 + 0.5) - 0.5) * 100.0;
+	float grid = (min(d.x, d.y) < 1.5) ? 1.0 : 0.0;
+	float2 c = abs(p - layout_size * 0.5);
+	float centre = (min(c.x, c.y) < 3.0) ? 1.0 : 0.0;
+	float3 base = float3(0.3, 0.3, 0.3);
+	return lerp(base, float3(1.0, 1.0, 1.0), max(grid, centre));
+}
+
+float4 PSBlend(VertInOut vert_in) : TARGET
+{
+	float2 local = (vert_in.uv - region.xy) / region.zw;
+
+	float3 rgb;
+	if (test_pattern > 0.5)
+		rgb = Pattern(vert_in.uv);
+	else
+		rgb = image.Sample(def_sampler, vert_in.uv).rgb;
+
+	float m = EdgeFactor(local.x, edges.x) * EdgeFactor(1.0 - local.x, edges.y) *
+		  EdgeFactor(local.y, edges.z) * EdgeFactor(1.0 - local.y, edges.w);
+
+	// Le noir d'un projecteur n'est jamais noir : on relève le noir hors
+	// des recouvrements pour qu'ils ne paraissent pas plus clairs.
+	float inside = 1.0;
+	if (local.x < edges.x || local.x > 1.0 - edges.y || local.y < edges.z || local.y > 1.0 - edges.w)
+		inside = 0.0;
+	rgb = rgb + black_level * (float3(1.0, 1.0, 1.0) - rgb) * inside;
+
+	return float4(rgb * m, 1.0);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSBlend(vert_in);
+		pixel_shader  = PSBlend(vert_in);
+	}
+}

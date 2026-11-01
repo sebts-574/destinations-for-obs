@@ -295,6 +295,9 @@ void Manager::ApplyLoad()
 	ready = true;
 
 	if (data) {
+		/* Les copies « à l'antenne » recréées au chargement ne doivent pas
+		 * ouvrir la fenêtre de couverture. */
+		creatingScene = true;
 		OBSDataArrayAutoRelease list = obs_data_get_array(data, "list");
 		const size_t count = obs_data_array_count(list);
 		for (size_t i = 0; i < count; i++) {
@@ -308,6 +311,7 @@ void Manager::ApplyLoad()
 			if (dest->Attached())
 				destinations.push_back(std::move(dest));
 		}
+		creatingScene = false;
 
 		OBSSourceAutoRelease preview = obs_get_source_by_uuid(obs_data_get_string(data, "preview_scene"));
 		previewScene = preview ? OBSGetWeakRef(preview.Get()) : OBSWeakSource();

@@ -73,6 +73,16 @@ struct Transform {
 Transform GetTransform(obs_sceneitem_t *item);
 void SetTransform(obs_sceneitem_t *item, const Transform &t);
 
+/* Recopie sources, placement, visibilité et ordre d'une scène dans une
+ * autre. */
+void CopyLayout(obs_scene_t *from, obs_scene_t *to);
+
+/* Taille du cadre provisoire d'une source dont l'image n'est pas encore
+ * connue (média pas encore lu). */
+constexpr float PLACEHOLDER_W = 320.0f;
+constexpr float PLACEHOLDER_H = 180.0f;
+bool IsPlaceholder(obs_sceneitem_t *item);
+
 /* Dessin de la sélection et des guides de centrage (thread graphique,
  * coordonnées canvas). */
 void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH);

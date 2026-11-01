@@ -113,7 +113,7 @@ bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set
 	return !name.empty();
 }
 
-static QComboBox *ScreenCombo(const std::string &current, QWidget *parent)
+QComboBox *ScreenCombo(const std::string &current, QWidget *parent)
 {
 	auto *combo = new QComboBox(parent);
 	combo->addItem(Tr("MDS.NoScreen"), QString());
@@ -168,6 +168,15 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 		resRow->addWidget(heightSpin);
 		resRow->addStretch(1);
 		form->addRow(Tr("MDS.Resolution"), resRow);
+
+		/* Destination blendée : la résolution est celle du layout. */
+		if (dest && dest->IsBlended()) {
+			widthSpin->setEnabled(false);
+			heightSpin->setEnabled(false);
+			auto *note = new QLabel(Tr("MDS.BlendResolutionNote"), &dialog);
+			note->setWordWrap(true);
+			form->addRow(note);
+		}
 	}
 
 	QComboBox *screenCombo = ScreenCombo(settings.outputScreen, &dialog);
@@ -196,6 +205,15 @@ bool EditDestination(QWidget *parent, Destination *dest, DestinationSettings &se
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
 	if (!dest)
 		buttons->button(QDialogButtonBox::Ok)->setText(Tr("MDS.Create"));
+	settings.openBlending = false;
+	if (dest && !isMain) {
+		QPushButton *blending = buttons->addButton(Tr("MDS.OutputBlendingMenu"), QDialogButtonBox::ActionRole);
+		blending->setToolTip(Tr("MDS.OutputBlendingTip"));
+		QObject::connect(blending, &QPushButton::clicked, &dialog, [&]() {
+			settings.openBlending = true;
+			dialog.accept();
+		});
+	}
 	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 	form->addRow(buttons);

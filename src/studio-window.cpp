@@ -23,12 +23,14 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "manager.hpp"
 #include "media-controls.hpp"
 #include "projector-window.hpp"
+#include "blend-editor.hpp"
 #include "text.hpp"
 #include "tile-grid.hpp"
 #include "undo.hpp"
 
 #include <obs-frontend-api.h>
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDockWidget>
@@ -139,6 +141,7 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 	setWindowTitle("Multidestination Studio");
 	setDockNestingEnabled(true);
 	setAcceptDrops(true);
+	qApp->installEventFilter(this);
 
 	BuildCentral();
 	BuildDocks();
@@ -297,6 +300,7 @@ void StudioWindow::BuildDocks()
 		if (item) {
 			Undo::PushSceneState(s);
 			obs_sceneitem_set_visible(item, row->checkState() == Qt::Checked);
+			AfterEdit();
 		}
 	});
 	connect(sourceList, &QListWidget::itemDoubleClicked, this, &StudioWindow::EditProperties);
@@ -712,6 +716,8 @@ void StudioWindow::ConnectTile(TileWidget *tile)
 		UpdateMediaControls();
 	});
 	connect(tile, &TileWidget::itemsChanged, this, [this](TileWidget *t) {
+		if (t->IsProgram())
+			t->Dest()->KeepLiveEdits();
 		if (t == ActiveTile())
 			RefreshSources();
 	});
@@ -761,6 +767,40 @@ void StudioWindow::SetModifyProgram(bool on)
 	if (!on && activeIsProgram)
 		SetActiveTile(pvwGrid->TileFor(activeDest));
 	RefreshSources();
+}
+
+/* Un clic ailleurs que dans un aperçu ou la liste des sources efface les
+ * contours et la sélection affichés (la sélection est gardée). */
+bool StudioWindow::eventFilter(QObject *watched, QEvent *event)
+{
+	if (event->type() == QEvent::MouseButtonPress && isVisible()) {
+		auto *w = qobject_cast<QWidget *>(watched);
+		if (w && w->window() == this) {
+			bool inside = false;
+			for (QWidget *p = w; p; p = p->parentWidget()) {
+				if (qobject_cast<TileWidget *>(p) || p == sourceList) {
+					inside = true;
+					break;
+				}
+			}
+			SetHighlight(inside);
+		}
+	}
+	return QMainWindow::eventFilter(watched, event);
+}
+
+void StudioWindow::SetHighlight(bool on)
+{
+	for (auto *t : pvwGrid->Tiles())
+		t->SetHighlighted(on);
+	for (auto *t : pgmGrid->Tiles())
+		t->SetHighlighted(on);
+}
+
+void StudioWindow::AfterEdit()
+{
+	if (activeIsProgram && activeDest)
+		activeDest->KeepLiveEdits();
 }
 
 void StudioWindow::ToggleFocus(Destination *dest)
@@ -970,24 +1010,14 @@ void StudioWindow::AddExistingSource(obs_source_t *source, bool freshMedia)
 	obs_sceneitem_t *item = obs_scene_add(s, source);
 	if (!item)
 		return;
-	obs_sceneitem_set_alignment(item, OBS_ALIGN_TOP | OBS_ALIGN_LEFT);
-
-	if (obs_source_get_width(source) == 0) {
-		/* Taille encore inconnue (média pas encore lu, réglages en
-		 * cours) : on lui donne un cadre de la taille de la
-		 * destination. Le contour est visible et la source se place
-		 * tout de suite ; l'image s'y adaptera. */
-		struct vec2 bounds;
-		vec2_set(&bounds, float(activeDest->Width()), float(activeDest->Height()));
-		obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
-		obs_sceneitem_set_bounds_alignment(item, OBS_ALIGN_CENTER);
-		obs_sceneitem_set_bounds(item, &bounds);
-		struct vec2 pos;
-		vec2_set(&pos, 0.0f, 0.0f);
-		obs_sceneitem_set_pos(item, &pos);
-	} else {
-		SceneEditor::FitToCanvas(item, activeDest->Width(), activeDest->Height());
-	}
+	/* Les sources gardent leur taille d'origine, centrées dans la
+	 * destination (alignement au centre : même si la taille n'est connue
+	 * qu'après la première image, la source reste centrée). Pas
+	 * d'adaptation automatique au cadre. */
+	obs_sceneitem_set_alignment(item, OBS_ALIGN_CENTER);
+	struct vec2 pos;
+	vec2_set(&pos, float(activeDest->Width()) * 0.5f, float(activeDest->Height()) * 0.5f);
+	obs_sceneitem_set_pos(item, &pos);
 
 	/* Média tout juste créé : on le met en pause au début pour afficher
 	 * sa première image sans le lire. Il repart du début en passant à
@@ -1006,6 +1036,7 @@ void StudioWindow::AddExistingSource(obs_source_t *source, bool freshMedia)
 	const int64_t id = obs_sceneitem_get_id(item);
 	Undo::PushAdded(s, id);
 	SelectItem(id);
+	AfterEdit();
 }
 
 void StudioWindow::CreateNewSource(const char *typeId)
@@ -1178,6 +1209,7 @@ void StudioWindow::ShowItemMenu(const QPoint &globalPos)
 		connect(visible, &QAction::toggled, this, [this, it](bool on) {
 			Undo::PushSceneState(ActiveScene());
 			obs_sceneitem_set_visible(it, on);
+			AfterEdit();
 			RefreshSources();
 		});
 		menu.addSeparator();
@@ -1200,6 +1232,7 @@ void StudioWindow::EditUndo()
 {
 	if (Undo::UndoLast())
 		RefreshSources();
+	AfterEdit();
 }
 
 void StudioWindow::EditCopy()
@@ -1226,6 +1259,7 @@ void StudioWindow::EditPaste()
 		SceneEditor::SetTransform(item, clipboardTransform);
 	Undo::PushAdded(s, obs_sceneitem_get_id(item));
 	SelectItem(obs_sceneitem_get_id(item));
+	AfterEdit();
 }
 
 void StudioWindow::EditRemove()
@@ -1236,6 +1270,7 @@ void StudioWindow::EditRemove()
 	Undo::PushRemoved(ActiveScene(), item);
 	obs_sceneitem_remove(item);
 	SelectItem(-1);
+	AfterEdit();
 }
 
 void StudioWindow::EditCopyTransform()
@@ -1254,6 +1289,7 @@ void StudioWindow::EditPasteTransform()
 		return;
 	Undo::PushSceneState(ActiveScene());
 	SceneEditor::SetTransform(item, copiedTransform);
+	AfterEdit();
 }
 
 void StudioWindow::EditResetTransform()
@@ -1262,6 +1298,7 @@ void StudioWindow::EditResetTransform()
 		Undo::PushSceneState(ActiveScene());
 		SceneEditor::ResetTransform(item);
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditFit()
@@ -1270,6 +1307,7 @@ void StudioWindow::EditFit()
 		Undo::PushSceneState(ActiveScene());
 		SceneEditor::FitToCanvas(item, activeDest->Width(), activeDest->Height());
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditStretch()
@@ -1278,6 +1316,7 @@ void StudioWindow::EditStretch()
 		Undo::PushSceneState(ActiveScene());
 		SceneEditor::StretchToCanvas(item, activeDest->Width(), activeDest->Height());
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditCenter()
@@ -1286,6 +1325,7 @@ void StudioWindow::EditCenter()
 		Undo::PushSceneState(ActiveScene());
 		SceneEditor::CenterInCanvas(item, activeDest->Width(), activeDest->Height());
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditMoveUp()
@@ -1295,6 +1335,7 @@ void StudioWindow::EditMoveUp()
 		obs_sceneitem_set_order(item, OBS_ORDER_MOVE_UP);
 		RefreshSources();
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditMoveDown()
@@ -1304,6 +1345,7 @@ void StudioWindow::EditMoveDown()
 		obs_sceneitem_set_order(item, OBS_ORDER_MOVE_DOWN);
 		RefreshSources();
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditMoveTop()
@@ -1313,6 +1355,7 @@ void StudioWindow::EditMoveTop()
 		obs_sceneitem_set_order(item, OBS_ORDER_MOVE_TOP);
 		RefreshSources();
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditMoveBottom()
@@ -1322,6 +1365,7 @@ void StudioWindow::EditMoveBottom()
 		obs_sceneitem_set_order(item, OBS_ORDER_MOVE_BOTTOM);
 		RefreshSources();
 	}
+	AfterEdit();
 }
 
 void StudioWindow::EditProperties()
@@ -1379,14 +1423,28 @@ void StudioWindow::FillDestinationsMenu()
 
 		connect(sub->addAction(Tr("MDS.DestinationSettings")), &QAction::triggered, this,
 			[this, d]() { EditDestination(d); });
+
+		if (!d->IsMain()) {
+			connect(sub->addAction(Tr("MDS.OutputBlendingMenu")), &QAction::triggered, this,
+				[this, d]() { EditBlending(d); });
+		}
 		sub->addSeparator();
 
-		QScreen *screen = Dialogs::FindScreen(d->OutputScreen());
-		QAction *full = sub->addAction(screen ? Tr("MDS.OpenFullscreenOn").arg(screen->name())
-						      : Tr("MDS.OpenFullscreen"));
-		full->setEnabled(screen != nullptr && !d->Disabled());
-		if (!screen)
-			full->setToolTip(Tr("MDS.NoScreenHint"));
+		QAction *full = nullptr;
+		if (d->IsBlended()) {
+			bool anyScreen = false;
+			for (const auto &o : d->Blend().outputs)
+				anyScreen = anyScreen || (o.placed && Dialogs::FindScreen(o.screen));
+			full = sub->addAction(Tr("MDS.OpenFullscreenOutputs"));
+			full->setEnabled(anyScreen && !d->Disabled());
+		} else {
+			QScreen *screen = Dialogs::FindScreen(d->OutputScreen());
+			full = sub->addAction(screen ? Tr("MDS.OpenFullscreenOn").arg(screen->name())
+						     : Tr("MDS.OpenFullscreen"));
+			full->setEnabled(screen != nullptr && !d->Disabled());
+			if (!screen)
+				full->setToolTip(Tr("MDS.NoScreenHint"));
+		}
 		connect(full, &QAction::triggered, this, [this, d]() { OpenProjector(d, true); });
 
 		QAction *windowed = sub->addAction(Tr("MDS.OpenWindowed"));
@@ -1415,15 +1473,75 @@ void StudioWindow::FillDestinationsMenu()
 	}
 
 	destinationsMenu->addSeparator();
+	connect(destinationsMenu->addAction(Tr("MDS.OutputBlendingMenu")), &QAction::triggered, this,
+		&StudioWindow::NewBlendedDestination);
+	destinationsMenu->addSeparator();
 	connect(destinationsMenu->addAction(Tr("MDS.NewDestinationMenu")), &QAction::triggered, this,
 		&StudioWindow::NewDestination);
+}
+
+std::string StudioWindow::DefaultDestinationName() const
+{
+	return QString("%1 %2").arg(Tr("MDS.Destination")).arg(Manager::Get().Destinations().size()).toStdString();
+}
+
+void StudioWindow::NewBlendedDestination()
+{
+	BlendEditor editor(this, nullptr, DefaultDestinationName());
+	editor.onCreate = [](BlendEditor *e) {
+		const BlendConfig &config = e->Config();
+		Destination *dest =
+			Manager::Get().Add(e->DestinationName(), config.width, config.height, e->AddToExisting());
+		if (!dest) {
+			QMessageBox::warning(e, Tr("MDS.OutputBlending"), Tr("MDS.AddFailed"));
+			return false;
+		}
+		dest->SetBlend(config);
+		Manager::Get().NotifyDestinationsChanged();
+		return true;
+	};
+	editor.exec();
+}
+
+void StudioWindow::EditBlending(Destination *dest)
+{
+	if (!dest || dest->IsMain())
+		return;
+	BlendEditor editor(this, dest, DefaultDestinationName());
+	editor.onSave = [this, dest](BlendEditor *e) {
+		Destination *d = dest;
+		const BlendConfig &config = e->Config();
+		d->SetName(e->DestinationName());
+		if (config.HasLayout() && (config.width != d->Width() || config.height != d->Height()))
+			d->Attach(config.width, config.height);
+		d->SetBlend(config);
+		Manager::Get().NotifyDestinationsChanged();
+		RefreshBlendProjectors(d);
+	};
+	editor.onOpenOutputs = [this](Destination *d) {
+		OpenProjector(d, true);
+	};
+	editor.exec();
+}
+
+void StudioWindow::RefreshBlendProjectors(Destination *dest)
+{
+	/* Les sorties ouvertes suivent la nouvelle configuration. */
+	if (!HasProjector(dest))
+		return;
+	bool fullscreen = false;
+	for (auto &p : projectors) {
+		if (p.second && p.first == dest && p.second->TargetScreen())
+			fullscreen = true;
+	}
+	CloseProjectors(dest);
+	OpenProjector(dest, fullscreen);
 }
 
 void StudioWindow::NewDestination()
 {
 	Dialogs::DestinationSettings settings;
-	settings.name =
-		QString("%1 %2").arg(Tr("MDS.Destination")).arg(Manager::Get().Destinations().size()).toStdString();
+	settings.name = DefaultDestinationName();
 	if (!Dialogs::EditDestination(this, nullptr, settings))
 		return;
 
@@ -1449,10 +1567,13 @@ void StudioWindow::EditDestination(Destination *dest)
 
 	if (!dest->IsMain()) {
 		dest->SetName(settings.name);
-		dest->Attach(settings.width, settings.height);
+		if (!dest->IsBlended())
+			dest->Attach(settings.width, settings.height);
 	}
 	dest->SetOutputScreen(settings.outputScreen);
 	Manager::Get().NotifyDestinationsChanged();
+	if (settings.openBlending)
+		EditBlending(dest);
 }
 
 void StudioWindow::DeleteDestination(Destination *dest)
@@ -1474,6 +1595,28 @@ bool StudioWindow::HasProjector(Destination *dest) const
 
 void StudioWindow::OpenProjector(Destination *dest, bool fullscreen)
 {
+	/* Destination blendée : une fenêtre par sortie placée. */
+	if (dest->IsBlended()) {
+		const BlendConfig config = dest->Blend();
+		for (size_t i = 0; i < config.outputs.size(); i++) {
+			const BlendOutput &o = config.outputs[i];
+			if (!o.placed)
+				continue;
+			QScreen *screen = fullscreen ? Dialogs::FindScreen(o.screen) : nullptr;
+			if (fullscreen && !screen)
+				continue;
+			for (auto &p : projectors) {
+				if (p.second && ((screen && p.second->TargetScreen() == screen) ||
+						 (p.first == dest && p.second->OutputIndex() == int(i))))
+					p.second->close();
+			}
+			auto *projector = new ProjectorWindow(dest, screen, int(i));
+			projectors.emplace_back(dest, projector);
+			projector->Start();
+		}
+		return;
+	}
+
 	QScreen *screen = fullscreen ? Dialogs::FindScreen(dest->OutputScreen()) : nullptr;
 	if (fullscreen && !screen)
 		return;

@@ -70,6 +70,12 @@ target_sources(
     src/media-controls.hpp
     src/text.hpp
     src/default-strings.hpp
+    src/blend.cpp
+    src/blend.hpp
+    src/blend-render.cpp
+    src/blend-render.hpp
+    src/blend-editor.cpp
+    src/blend-editor.hpp
     src/projector-window.cpp
     src/projector-window.hpp
     src/qt-display.cpp
