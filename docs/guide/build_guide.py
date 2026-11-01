@@ -136,8 +136,11 @@ def shot(text, height=80):
     if os.path.exists(path):
         img = Image(path)
         ratio = img.imageHeight / img.imageWidth
-        h = min(w * ratio, 120 * mm)
+        # Natural size at about 96 dpi, never wider than the text column.
+        iw = min(w, img.imageWidth * 0.26 * mm)
+        h = min(iw * ratio, 120 * mm)
         img = Image(path, width=h / ratio, height=h)
+        img.hAlign = "CENTER"
         flow = img
     else:
         flow = Placeholder(n, "To be provided", w, height * mm)
@@ -598,6 +601,7 @@ def build():
         ["Language…", "Same as OBS, English, Français or Norsk (Bokmål). Takes effect when OBS restarts."],
     ], [42, 123])
     s += shot("The Configuration Settings menu and the After a transition dialog.", 60)
+    s += shot("The Destinations shown and Language dialogs.", 60)
     s += shot("The Startup Settings dialog.", 35)
 
     # 12 ------------------------------------------------------------
