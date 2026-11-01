@@ -331,11 +331,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.0.0-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.0.3-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.0.0-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.0.3-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
     ], [22, 70, 73])
     s += [P("Start OBS. A <b>Multidestination Studio</b> button appears in the OBS <b>Controls</b> dock, next to "

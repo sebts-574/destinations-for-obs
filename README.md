@@ -49,7 +49,7 @@ cmake --preset windows-x64      # or macos, ubuntu-x86_64
 cmake --build --preset windows-x64
 ```
 
-Every push to `main` builds Windows, macOS and Linux packages in GitHub Actions. Pushing a tag such as `1.0.0` creates a draft release with all packages attached.
+Every push to `main` builds Windows, macOS and Linux packages in GitHub Actions. Pushing a tag such as `1.0.3` creates a draft release with all packages attached.
 
 ## Project layout
 
