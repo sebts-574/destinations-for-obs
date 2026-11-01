@@ -64,6 +64,9 @@ public:
 	/* Hauteur de l'en-tête (nom + boutons), fixée par la colonne. */
 	void SetHeaderHeight(int height);
 	static int HeaderHeightFor(int columnWidth);
+	/* Texte « Absente de cette scène » partagé (thread de l'interface). */
+	static void EnsureAbsentLabel();
+	static void ReleaseShared();
 	void SetSelectedItem(int64_t id);
 	int64_t SelectedItem() const { return selectedId.load(); }
 	void RefreshHeader();
@@ -102,8 +105,7 @@ private:
 
 	QWidget *header = nullptr;
 	QLabel *headerLabel = nullptr;
-	QString headerText;            /* texte complet (le libellé peut être abrégé) */
-	QLabel *absentBadge = nullptr; /* « Absente de cette scène » */
+	QString headerText; /* texte complet (le libellé peut être abrégé) */
 	std::atomic<bool> absent{false};
 	QPushButton *lockButton = nullptr;
 	QPushButton *focusButton = nullptr;

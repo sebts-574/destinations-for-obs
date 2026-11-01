@@ -33,6 +33,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QAbstractButton>
+#include <QPainter>
 #include <QRadioButton>
 #include <QScreen>
 #include <QSpinBox>
@@ -285,6 +287,66 @@ bool EditDisplaySetting(QWidget *parent, bool &showAll)
 	return ChooseOption(parent, Tr("MDS.SettingDisplay"), Tr("MDS.SettingDisplayIntro"),
 			    Tr("MDS.SettingDisplayAll"), Tr("MDS.SettingDisplayAllTip"), Tr("MDS.SettingDisplayScene"),
 			    Tr("MDS.SettingDisplaySceneTip"), showAll);
+}
+
+/* Interrupteur activé / désactivé (pilule, bleu quand activé). */
+class ToggleSwitch : public QAbstractButton {
+public:
+	explicit ToggleSwitch(QWidget *parent) : QAbstractButton(parent)
+	{
+		setCheckable(true);
+		setCursor(Qt::PointingHandCursor);
+		setFixedSize(52, 28);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter p(this);
+		p.setRenderHint(QPainter::Antialiasing, true);
+		const QRectF track = QRectF(rect()).adjusted(1, 1, -1, -1);
+		p.setPen(Qt::NoPen);
+		p.setBrush(isChecked() ? QColor(0x3D, 0x8B, 0xF5) : QColor(0x5A, 0x5D, 0x66));
+		p.drawRoundedRect(track, track.height() / 2, track.height() / 2);
+		const qreal d = track.height() - 6;
+		const qreal x = isChecked() ? track.right() - 3 - d : track.left() + 3;
+		p.setBrush(Qt::white);
+		p.drawEllipse(QRectF(x, track.top() + 3, d, d));
+	}
+};
+
+void EditStartupSetting(QWidget *parent)
+{
+	QDialog dialog(parent);
+	dialog.setWindowTitle(Tr("MDS.SettingStartup"));
+	dialog.setMinimumWidth(440);
+	auto *layout = new QVBoxLayout(&dialog);
+
+	auto *row = new QHBoxLayout();
+	auto *label = new QLabel(Tr("MDS.SettingStartupLaunch"), &dialog);
+	auto *toggle = new ToggleSwitch(&dialog);
+	toggle->setChecked(Manager::Get().LaunchOnStartup());
+	auto *state = new QLabel(&dialog);
+	auto refresh = [=]() {
+		state->setText(toggle->isChecked() ? Tr("MDS.Enabled") : Tr("MDS.Disabled"));
+	};
+	refresh();
+	QObject::connect(toggle, &QAbstractButton::toggled, &dialog, [=](bool on) {
+		Manager::Get().SetLaunchOnStartup(on);
+		refresh();
+	});
+	label->setBuddy(toggle);
+	row->addWidget(label, 1);
+	row->addWidget(state);
+	row->addWidget(toggle);
+	layout->addLayout(row);
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+	buttons->button(QDialogButtonBox::Close)->setText(Tr("MDS.Close"));
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addSpacing(8);
+	layout->addWidget(buttons);
+	dialog.exec();
 }
 
 bool EditLanguageSetting(QWidget *parent, std::string &locale)

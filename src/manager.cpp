@@ -370,6 +370,8 @@ void Manager::LoadSettings()
 		return;
 	config_set_default_bool(config, SETTINGS_SECTION, "SwapAfterTake", true);
 	config_set_default_bool(config, SETTINGS_SECTION, "ShowAllDestinations", true);
+	config_set_default_bool(config, SETTINGS_SECTION, "LaunchOnStartup", false);
+	launchOnStartup = config_get_bool(config, SETTINGS_SECTION, "LaunchOnStartup");
 	swapAfterTake = config_get_bool(config, SETTINGS_SECTION, "SwapAfterTake");
 	const char *lang = config_get_string(config, SETTINGS_SECTION, "Language");
 	language = lang ? lang : "";
@@ -387,6 +389,7 @@ void Manager::SaveSettings() const
 	config_set_bool(config, SETTINGS_SECTION, "SwapAfterTake", swapAfterTake);
 	config_set_bool(config, SETTINGS_SECTION, "ShowAllDestinations", showAllDestinations);
 	config_set_string(config, SETTINGS_SECTION, "Language", language.c_str());
+	config_set_bool(config, SETTINGS_SECTION, "LaunchOnStartup", launchOnStartup);
 	config_save_safe(config, "tmp", nullptr);
 }
 
@@ -413,5 +416,13 @@ void Manager::SetLanguage(const std::string &value)
 	if (language == value)
 		return;
 	language = value;
+	SaveSettings();
+}
+
+void Manager::SetLaunchOnStartup(bool value)
+{
+	if (launchOnStartup == value)
+		return;
+	launchOnStartup = value;
 	SaveSettings();
 }

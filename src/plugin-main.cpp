@@ -19,6 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "blend-render.hpp"
 #include "manager.hpp"
 #include "studio-window.hpp"
+#include "tile-grid.hpp"
 #include "text.hpp"
 
 #include <obs-frontend-api.h>
@@ -31,6 +32,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMetaObject>
 #include <QPointer>
 #include <QPushButton>
+#include <QTimer>
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
@@ -140,6 +142,12 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
 		AddControlsButton();
 		m.ApplyLoad();
+		/* Réglage « Launch Multidestination Studio on startup ». */
+		if (m.LaunchOnStartup() && studio)
+			QTimer::singleShot(500, studio.data(), []() {
+				if (studio && !studio->isVisible())
+					studio->Open();
+			});
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
 		m.ApplyLoad();
@@ -163,6 +171,7 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN:
 		if (studio)
 			studio->Shutdown();
+		TileWidget::ReleaseShared();
 		m.Reset();
 		break;
 	default:

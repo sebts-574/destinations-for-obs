@@ -95,6 +95,10 @@ public:
 	/* Langue du plugin ("" = celle d'OBS). Prise en compte au prochain
 	 * démarrage d'OBS. */
 	const std::string &Language() const { return language; }
+	/* Ouvrir Multidestination Studio au démarrage d'OBS (désactivé par
+	 * défaut). */
+	bool LaunchOnStartup() const { return launchOnStartup; }
+	void SetLaunchOnStartup(bool value);
 	void SetLanguage(const std::string &value);
 	bool Ready() const { return ready; }
 
@@ -123,6 +127,7 @@ private:
 	bool swapAfterTake = true;
 	bool showAllDestinations = true;
 	std::string language;
+	bool launchOnStartup = false;
 
 	void LoadSettings();
 	void SaveSettings() const;

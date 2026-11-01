@@ -95,12 +95,6 @@ TileWidget::TileWidget(Destination *destination, bool program_, QWidget *parent)
 	headerLayout->setSpacing(4);
 	headerLabel = new QLabel(header);
 	headerLayout->addWidget(headerLabel, 1);
-	absentBadge = new QLabel(Tr("MDS.NotInSceneBadge"), header);
-	absentBadge->setAlignment(Qt::AlignCenter);
-	absentBadge->setStyleSheet("QLabel { background-color: #8e2a2a; color: white; border-radius: 4px; "
-				   "padding: 1px 8px; }");
-	absentBadge->hide();
-	headerLayout->addWidget(absentBadge);
 
 	focusButton = new QPushButton(header);
 	focusButton->setFixedHeight(HEADER_HEIGHT);
@@ -204,11 +198,12 @@ void TileWidget::RefreshHeader()
 	headerText = text;
 	headerLabel->setToolTip(text);
 
-	/* Destination absente de la scène sélectionnée : badge rouge dans
-	 * l'en-tête et image hachurée (voir DrawCb). */
+	/* Destination absente de la scène sélectionnée : image hachurée avec
+	 * « Absente de cette scène » en rouge au centre (voir DrawCb). */
 	const bool isAbsent = !program && !LinkedScene();
 	absent = isAbsent;
-	absentBadge->setVisible(isAbsent);
+	if (isAbsent)
+		EnsureAbsentLabel();
 	setToolTip(isAbsent ? Tr("MDS.SettingDisplayAllTip") : QString());
 
 	if (lockButton) {
@@ -255,7 +250,6 @@ void TileWidget::FitHeaderButtons()
 	labelFont.setPixelSize(std::clamp(h * 52 / 100, 13, 24));
 	labelFont.setBold(true);
 	headerLabel->setFont(labelFont);
-	absentBadge->setFont(font);
 
 	const QString focusFull = focused ? Tr("MDS.Unfocus") : Tr("MDS.Focus");
 	const QString lockFull = dest->Locked() ? Tr("MDS.Locked") : Tr("MDS.Lock");
@@ -271,8 +265,7 @@ void TileWidget::FitHeaderButtons()
 	};
 
 	const int total = std::max(1, width());
-	const int badgeW = absent.load() ? fm.horizontalAdvance(absentBadge->text()) + 24 : 0;
-	int needed = widthFor(focusFull) + badgeW;
+	int needed = widthFor(focusFull);
 	if (lockButton)
 		needed += widthFor(lockFull);
 	const int labelMin = std::min(labelFm.horizontalAdvance(headerText), 220);
@@ -282,7 +275,7 @@ void TileWidget::FitHeaderButtons()
 	focusButton->setFont(font);
 	focusButton->setText(focusText);
 	focusButton->setFixedWidth(widthFor(focusText));
-	int used = focusButton->width() + badgeW + 16;
+	int used = focusButton->width() + 16;
 	if (lockButton) {
 		const QString lockText = full ? lockFull : symbol(lockFull);
 		lockButton->setFont(font);
@@ -307,8 +300,50 @@ void TileWidget::FitHeaderButtons()
 /* Rendu (thread graphique)                                             */
 /* ------------------------------------------------------------------ */
 
-/* Destination absente de la scène : fond gris foncé hachuré en diagonale
- * et grande croix, pour qu'on le voie d'un coup d'œil. */
+/* Texte « Absente de cette scène » : une source texte privée d'OBS
+ * (FreeType 2, présente sur les trois systèmes), partagée par les tuiles. */
+static std::mutex absentMutex;
+static OBSSource absentLabel;
+
+static OBSSource AbsentLabel()
+{
+	std::lock_guard<std::mutex> lock(absentMutex);
+	return absentLabel;
+}
+
+void TileWidget::EnsureAbsentLabel()
+{
+	{
+		std::lock_guard<std::mutex> lock(absentMutex);
+		if (absentLabel)
+			return;
+	}
+	OBSDataAutoRelease settings = obs_data_create();
+	obs_data_set_string(settings, "text", Tr("MDS.NotInSceneBadge").toUtf8().constData());
+	OBSDataAutoRelease font = obs_data_create();
+	obs_data_set_string(font, "face", "Arial");
+	obs_data_set_string(font, "style", "Bold");
+	obs_data_set_int(font, "size", 96);
+	obs_data_set_int(font, "flags", 1); /* gras */
+	obs_data_set_obj(settings, "font", font);
+	/* Couleurs au format ABGR d'OBS : rouge #E04848. */
+	obs_data_set_int(settings, "color1", 0xFF4848E0);
+	obs_data_set_int(settings, "color2", 0xFF4848E0);
+	obs_data_set_bool(settings, "antialiasing", true);
+	OBSSourceAutoRelease source =
+		obs_source_create_private("text_ft2_source_v2", "multidestination-absent-label", settings);
+	std::lock_guard<std::mutex> lock(absentMutex);
+	absentLabel = source.Get();
+}
+
+void TileWidget::ReleaseShared()
+{
+	std::lock_guard<std::mutex> lock(absentMutex);
+	absentLabel = nullptr;
+}
+
+/* Destination absente de la scène : fond gris foncé hachuré en diagonale,
+ * cadre rouge et texte rouge au centre, visible d'un coup d'œil. */
 static void DrawAbsent(float w, float h)
 {
 	DrawSolidRect(0.0f, 0.0f, w, h, 0xFF1A1A1A);
@@ -322,15 +357,18 @@ static void DrawAbsent(float w, float h)
 		DrawSolidRect(x, -diag, stripe, diag * 2.0f, 0xFF2A2A2A);
 	gs_matrix_pop();
 
-	/* Croix rouge sombre d'un coin à l'autre. */
 	const float t = std::max(w, h) / 160.0f;
-	const float len = diag;
-	const float angle = std::atan2(h, w);
-	for (float a : {angle, -angle}) {
+
+	/* « Absente de cette scène » en rouge, centré, à l'échelle du cadre. */
+	OBSSource label = AbsentLabel();
+	const uint32_t lw = label ? obs_source_get_width(label) : 0;
+	const uint32_t lh = label ? obs_source_get_height(label) : 0;
+	if (lw > 0 && lh > 0) {
+		const float scale = std::min(w * 0.7f / float(lw), h * 0.14f / float(lh));
 		gs_matrix_push();
-		gs_matrix_translate3f(w * 0.5f, h * 0.5f, 0.0f);
-		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, a);
-		DrawSolidRect(-len * 0.5f, -t * 0.5f, len, t, 0xB08E2A2A);
+		gs_matrix_translate3f((w - float(lw) * scale) * 0.5f, (h - float(lh) * scale) * 0.5f, 0.0f);
+		gs_matrix_scale3f(scale, scale, 1.0f);
+		obs_source_video_render(label);
 		gs_matrix_pop();
 	}
 	DrawOutline(t, t, w - 2.0f * t, h - 2.0f * t, t, 0xFF8E2A2A);

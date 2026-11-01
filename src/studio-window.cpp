@@ -655,6 +655,8 @@ void StudioWindow::BuildMenus()
 		if (Dialogs::EditDisplaySetting(this, showAll))
 			Manager::Get().SetShowAllDestinations(showAll);
 	});
+	connect(settingsMenu->addAction(Tr("MDS.SettingStartupMenu")), &QAction::triggered, this,
+		[this]() { Dialogs::EditStartupSetting(this); });
 	settingsMenu->addSeparator();
 	connect(settingsMenu->addAction(Tr("MDS.SettingLanguageMenu")), &QAction::triggered, this, [this]() {
 		std::string locale = Manager::Get().Language();
