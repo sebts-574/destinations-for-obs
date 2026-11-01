@@ -28,8 +28,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <vector>
 
 /*
- * Modèle V0.2
- * -----------
+ * Modèle
+ * ------
  * - Les scènes OBS (canvas principal) sont la référence : une « scène » du
  *   plugin = une scène OBS.
  * - Chaque destination supplémentaire a son propre canvas. Pour chaque scène

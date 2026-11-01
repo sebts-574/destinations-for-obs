@@ -29,4 +29,3 @@ QString Tr(const char *key);
 /* Langue de l'interface du plugin, indépendante de celle d'OBS :
  * "" = suivre OBS, sinon "en-US", "fr-FR" ou "nb-NO". */
 void SetUiLanguage(const std::string &locale);
-std::string UiLanguage();

@@ -203,7 +203,6 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	 "Every destination stays visible. A destination the scene doesn't cover shows an empty Preview and keeps its Program. Each scene still chooses its destinations."},
 	{"MDS.SettingDisplayScene", "Only the destinations of the selected scene"},
 	{"MDS.SettingDisplaySceneTip", "The view changes with the scene: you only see the destinations it covers."},
-	{"MDS.NotInScene", "not in this scene"},
 	{"MDS.WindowMinimize", "Minimize"},
 	{"MDS.WindowFullscreen", "Fullscreen"},
 	{"MDS.WindowExitFullscreen", "Exit fullscreen"},

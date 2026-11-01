@@ -1,247 +1,66 @@
 # Multidestination Studio
 
-Plugin OBS Studio qui ajoute des **destinations** : des sorties indépendantes,
-chacune avec ses scènes, son Preview/Program et ses transitions, à la manière
-des surfaces de QLab.
+**Multidestination Studio** is a plugin for [OBS Studio](https://obsproject.com) that turns OBS into a multi-output show controller. It adds independent **destinations** (an LED wall, a set of blended projectors, stage monitors, the stream), each with its own resolution, Preview and Program, all driven from one full-screen studio view with a single TAKE.
 
-> Statut : **V0.9.4 — prototype**. Compile pour macOS, Windows et Linux ;
-> la V0.8 a été testée dans OBS (sauf l'Output blending), la V0.9 pas encore.
+Version **1.0.0** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
 
-## Installer
+## Features
 
-Un seul fichier par système, dans la Release GitHub (ou l'onglet Actions →
-build → Artifacts) :
+- **Destinations**: the OBS main canvas plus as many extra destinations as you need, each with its own canvas, resolution and physical output screen.
+- **Shared scenes**: one scene list for every destination. Each scene chooses which destinations it covers, and each destination keeps its own version of the scene (its own sources and layout).
+- **Multidestination Studio view**: a full-screen workspace in the OBS style, with stacked Preview and Program columns and docks for scenes, sources, media controls, audio mixer, scene transitions and controls.
+- **One TAKE for every destination**: Transition or Cut uses the OBS transition. Locked destinations, and destinations the scene does not cover, keep their Program.
+- **Protected live output**: what is on air is a copy of the scene. "Modify PGM" lets you edit the live picture directly, and those edits are kept in the scene.
+- **Mouse editing**: move, resize, crop, centre snapping, undo, reordering, multi-selection, drag and drop of media files.
+- **Output blending**: spread one destination across several projectors with automatic soft-edge blending, gamma, curve, black level, corner pin and a built-in test pattern.
+- **Projection**: open any destination fullscreen on its screen, or one window per projector for a blended destination.
+- **Languages**: English, French and Norwegian (Bokmål), selectable independently from the OBS language.
 
-- **Windows** : `multidestination-studio-x.y.z-windows-x64-installer.exe`.
-  Installe dans `C:\ProgramData\obs-studio\plugins\multidestination-studio`
-  (textes compris) et retire les anciennes copies manuelles mal placées.
-- **macOS** : `multidestination-studio-x.y.z-macos-universal.pkg` (non signé :
-  Réglages Système → Confidentialité et sécurité → Ouvrir quand même).
-- **Linux** : `.deb` (`sudo apt install ./fichier.deb`).
+## Installation
 
-Fermer OBS avant d'installer.
+Download the file for your system from the [Releases](https://github.com/sebts-574/multidestination-studio/releases) page and close OBS before installing.
 
-## Nouveautés V0.9.4
+| System | File | Notes |
+|---|---|---|
+| Windows 10/11 (x64) | `multidestination-studio-1.0.0-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
+| macOS (Apple Silicon and Intel) | the `.pkg` package (universal) | Not signed: System Settings → Privacy & Security → Open Anyway. |
+| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.0.0-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.0.0-x86_64-linux-gnu.deb` |
 
-- Destination absente de la scène : « Absente de cette scène » en rouge au
-  centre de l'image hachurée (plus de croix ni de badge dans l'en-tête).
-- Configuration Settings → Startup Settings… : interrupteur « Launch
-  Multidestination Studio on startup » (désactivé par défaut).
+Then open OBS and click **Multidestination Studio** in the Controls dock (or Tools → Multidestination Studio).
 
-## Nouveautés V0.9.3
+If you used a test version named `destinations-for-obs`, the Windows installer removes it. On macOS and Linux, remove it manually so OBS does not load both.
 
-- Noms des destinations jamais abrégés : la police rétrécit pour que tout
-  le nom tienne.
-- Titres Aperçu / Programme replacés et dimensionnés d'après la maquette.
-- Disposition des docks par défaut : Scènes, Sources, Contrôles média,
-  Mixeur audio, Transitions de scène, Commandes, côte à côte en bas.
-  « Réinitialiser les docks » dans le menu Docks.
-- Info F11 : « pour basculer en plein écran » ou « pour quitter le plein
-  écran » selon l'état de la fenêtre.
+## Quick start
 
-## Nouveautés V0.9.2
+1. Open Multidestination Studio. The default destination is your OBS canvas.
+2. **Destinations → New destination…**: give it a name, a resolution and an output screen.
+3. Add a scene (Scenes dock **+**) and tick the destinations it should appear on.
+4. Add sources in each destination's Preview, place them with the mouse.
+5. Press **Transition** or **Cut**. Open the destination on its screen from the **Destinations** menu.
 
-- Installeur Windows : le plugin s'installait dans l'ancien dossier
-  « destinations-for-obs » (repris de l'installation précédente), qu'OBS
-  ignore puisque le plugin s'appelle maintenant multidestination-studio. Il
-  s'installe désormais toujours dans `plugins\multidestination-studio`.
+The full user guide is in [`docs/`](docs/).
 
-## Nouveautés V0.9.1
+## Building from source
 
-- Langue du plugin indépendante de celle d'OBS : Configuration Settings →
-  Langue… (comme OBS, English, Français, Norsk). Prise en compte au
-  redémarrage d'OBS.
-- Le journal d'OBS indique la langue d'OBS et celle du plugin.
+The project uses the [obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate) build system (CMake presets, Qt 6, OBS 31.1.1 dependencies downloaded automatically).
 
-## Nouveautés V0.9
-
-- Le projet s'appelle **multidestination-studio** (fichiers, plugin,
-  installeurs). Les destinations et réglages déjà enregistrés sont gardés.
-  L'installeur Windows supprime l'ancien plugin « destinations-for-obs » ;
-  sur macOS et Linux, désinstaller l'ancien à la main pour qu'OBS ne charge
-  pas les deux.
-- Interface traduite en norvégien (bokmål), avec les termes d'OBS.
-- Info « F11 pour basculer en plein écran » à côté des menus.
-- Destination absente de la scène : image hachurée barrée d'une croix et
-  badge rouge « Absente de cette scène ».
-- Noms des destinations en gras, taille adaptée à la colonne, abrégés si
-  besoin. Titres Aperçu / Programme encore plus grands.
-
-## Nouveautés V0.8
-
-- Les destinations sont gardées dans la collection de scènes même quand
-  OBS enregistre pendant sa fermeture (elles étaient perdues au
-  redémarrage).
-- Multidestination Studio s'ouvre en plein écran. Souris en haut à droite :
-  « Réduire », « Quitter le plein écran », « Quitter ». F11 bascule le
-  plein écran.
-- Sélection de plusieurs scènes ou sources par cliquer-glisser (Maj / Ctrl
-  aussi). Pour déplacer, cliquer-glisser depuis un élément déjà
-  sélectionné.
-- Suppr supprime les scènes ou sources sélectionnées, après confirmation.
-- Réglages par défaut : « L'ancien Programme revient en Aperçu » et
-  « Toutes les destinations, en permanence », marqués « (recommandé) ».
-- Boutons Agrandir / Verrouiller dimensionnés d'après leur texte, en-tête
-  plus haut sur les grandes colonnes ; titres Aperçu / Programme en grand
-  et en gras ; « Modifier le PGM » détaché de Transition / Cut ; textes
-  d'aide en blanc.
-
-## Nouveautés V0.7
-
-- Ordre des scènes et des sources : glisser-déposer dans les listes,
-  boutons ↑ / ↓ et menu clic droit (monter, descendre, en haut, en bas).
-  L'ordre des scènes est celui de la liste de scènes d'OBS.
-- Nouveau menu « Configuration Settings », à côté de Docks :
-  - « Après une transition… » : l'ancien Programme revient en Aperçu (comme
-    OBS), ou la scène passée à l'antenne reste en Aperçu ;
-  - « Destinations affichées… » : toutes les destinations en permanence
-    (une destination absente de la scène a un Aperçu vide), ou seulement
-    celles de la scène sélectionnée.
-  Les réglages sont gardés dans la configuration d'OBS.
-- Boutons Agrandir / Verrouiller : taille du texte adaptée à la largeur,
-  symbole seul quand la place manque.
-- Titres « Aperçu » et « Programme » au-dessus des destinations.
-
-## Nouveautés V0.6
-
-- Une vidéo inactive (pas lue, sans image) se déplace, se redimensionne et se
-  modifie comme les autres sources, y compris juste après l'ajout. Sa taille
-  d'image est mémorisée dès qu'elle a été vue une fois, et enregistrée avec
-  la collection. Une vidéo jamais vue garde un cadre provisoire ; si on le
-  redimensionne, l'image s'y adaptera en gardant ses proportions.
-
-## Nouveautés V0.5
-
-- **Output blending** (menu Destinations → « Output blending… ») : une
-  destination répartie sur plusieurs sorties (vidéoprojecteurs).
-  - « Nouvelle sortie », chacune avec son écran ; on la glisse sur le layout.
-    Elle garde la forme de son écran et ne peut pas sortir du layout.
-  - Taille du layout réglable dès la première sortie ; les sorties suivent.
-  - Édition à la souris comme en Aperçu/Programme (aimant au centre, Maj =
-    ratio libre, flèches, Suppr, Ctrl+Z).
-  - Fondus automatiques sur les recouvrements (ou manuels), gamma, courbe,
-    niveau de noir, corner pin, mire.
-  - « Save & Create destination » ; ensuite « Output blending… » dans le
-    sous-menu ou les paramètres de la destination, avec « Save changes »
-    (grisé une fois enregistré) et « Close » (demande si non enregistré).
-  - « Ouvrir les sorties » : chaque sortie en plein écran sur son écran, les
-    réglages s'affichent en direct pendant l'édition.
-- Les retouches faites avec « Modifier le PGM » sont gardées dans la scène.
-- Les fichiers importés gardent leur taille d'origine, centrés.
-- Correction du décalage Aperçu / Programme sur les grandes destinations.
-- Les contours (destination, source) s'effacent quand on clique ailleurs.
-
-## Nouveautés V0.4
-
-- **Modifier le PGM** (au-dessus de Transition, rouge quand activé) : par
-  défaut, ce qui est à l'antenne est une copie de la scène ; les retouches
-  faites en Aperçu ne passent à l'antenne qu'à la transition suivante.
-  Activé, le Programme devient éditable directement.
-- **Agrandir** une destination (Aperçu + Programme) pour placer finement.
-- Édition : proportions gardées sur toutes les poignées (Maj pour les
-  libérer), aimant seulement au centre, débordement autorisé avec contour
-  orange, contours et guides verts, guides seulement sur la destination
-  active, contour vert discret autour de la destination de travail.
-- **Annuler** (Ctrl+Z).
-- **Glisser-déposer** de fichiers (images, vidéos, sons, pages HTML).
-- **Contrôles média** (lecture, pause, arrêt, position) ; un média ajouté a
-  tout de suite un cadre à placer, et s'arrête sur sa première image.
-- **Mixeur** : sources actives puis celles de la scène sélectionnée,
-  « Tout afficher », écoute (monitoring) par source.
-- **Destination par défaut** : « Désactiver et masquer » (menu
-  Destinations) ; ses scènes sont mémorisées.
-- **Nouvelle destination** : case « Ajouter aux scènes existantes »
-  (décochée par défaut).
-
-## Multidestination Studio (V0.3)
-
-- **Ouverture** : bouton « Multidestination Studio » dans le dock Commandes
-  d'OBS (entre « Mode Studio » et « Paramètres »), menu Outils, ou raccourci.
-  Échap ou Fichier → Quitter pour revenir à OBS.
-- **Fenêtre façon OBS** : Aperçu / Programme au centre (destinations de la
-  scène sélectionnée, empilées), boutons Transition et Cut entre les deux ;
-  docks Scènes, Sources, Mixeur audio, Transitions de scène, Commandes
-  (déplaçables, menu Docks).
-- **Scènes** : chaque nouvelle scène (ici ou dans OBS) demande sur quelles
-  destinations l'afficher, toutes cochées par défaut. Chaque destination a sa
-  mise en page de la scène.
-- **Sources** : création de nouvelles sources directement dans la vue (même
-  liste de types que le « + » d'OBS), ajout de sources existantes ou de
-  scènes.
-- **Édition à la souris** : déplacer, redimensionner (Maj : proportions
-  libres), recadrer (Alt), aimantation (Ctrl pour la couper), guides quand la
-  source est centrée.
-- **Raccourcis** (dans les aperçus et la liste des sources) : Suppr/Retour
-  arrière, Ctrl+C / Ctrl+V, Ctrl+Maj+C / Ctrl+Maj+V (transformation), Ctrl+R,
-  Ctrl+F, Ctrl+S, Ctrl+D, Ctrl+↑ / ↓ / Début / Fin, flèches (Maj : ×10).
-  Cmd au lieu de Ctrl sur macOS.
-- **Transition** : une seule transition, celle d'OBS (type, durée,
-  propriétés), appliquée à toutes les destinations. Après une transition,
-  l'ancien Programme revient en Aperçu, comme dans OBS. Une destination que
-  la scène n'affiche pas garde son Programme ; **Verrouiller** exclut une
-  destination.
-- **Menu Destinations** : chaque destination (Paramètres, Ouvrir en plein
-  écran sur son écran de sortie, Ouvrir en fenêtre, Fermer la projection,
-  Supprimer avec confirmation) et « Nouvelle destination… » (nom,
-  résolution, écran de sortie). Une nouvelle destination est ajoutée à toutes
-  les scènes existantes.
-
-## Compatibilité
-
-- OBS Studio **31.1 ou plus récent** (API des canvases).
-- macOS (Apple Silicon + Intel), Windows x64, Ubuntu 24.04 x86_64.
-
-## Compiler
-
-Rien à installer : chaque `git push` sur `main` lance GitHub Actions, qui
-compile pour les trois systèmes. Les fichiers sont dans l'onglet **Actions**
-→ build → *Artifacts*. Un tag `0.1.0` (sans « v ») crée une Release GitHub en brouillon.
-
-## Décisions, hypothèses, points ouverts
-
-**Décisions (V0.1)**
-- Plugin OBS, pas de fork. Base : `obs-plugintemplate` officiel.
-- Le canvas de la destination ne mixe pas l'audio (flags `ACTIVATE | SCENE_REF`) :
-  l'audio reste géré par le mixeur principal d'OBS, pour éviter les doublons.
-- La transition Stinger est masquée tant qu'il n'y a pas de fenêtre de réglages.
-- Vérification du format du code (clang-format, gersemi) retirée de la CI
-  pour ne pas bloquer les builds.
-
-**Hypothèses à vérifier au premier test**
-- OBS sauvegarde et recharge le canvas et ses scènes avec la collection.
-- L'état propre au plugin (Preview, Program, transition) est relu avant
-  l'événement « chargement terminé ».
-- La sortie Program affichée est bien la texture finale du canvas.
-
-**Points ouverts**
-- Nom définitif du plugin.
-- Édition des sources à la souris (position, recadrage) : V0.2 ou plus tard.
-
-## Feuille de route
-
-| Version | Contenu |
-|---|---|
-| V0.1 | Une destination : scènes, PVW/PGM, transitions, projecteur |
-| V0.2 | Scènes communes, vue Studio, édition à la souris, TAKE global, N destinations |
-| V0.3 | Multidestination Studio façon OBS, sources, mixeur, transition globale, menu Destinations |
-| V0.4 | Modifier le PGM, agrandir, annuler, glisser-déposer, médias, mixeur, installeurs |
-| V0.5 | Output blending : sorties, fondus (courbe + gamma), niveau de noir, corner pin, mire |
-| Plus tard | Sorties DeckLink / NDI par sortie ; stream et enregistrement par destination |
-
-## Arborescence
-
-```
-src/destination.*       moteur : canvas, scènes, PVW/PGM, transitions (sans Qt)
-src/destination-dock.*  interface du dock
-src/projector-window.*  projecteur plein écran
-src/plugin-main.cpp     chargement du plugin, sauvegarde, événements OBS
-src/qt-display.*        widget d'affichage OBS (repris d'OBS Studio)
-data/locale/            textes de l'interface (en-US, fr-FR)
-.github/workflows/      compilation automatique macOS / Windows / Linux
-buildspec.json          nom, version, version d'OBS ciblée
+```sh
+cmake --preset windows-x64      # or macos, ubuntu-x86_64
+cmake --build --preset windows-x64
 ```
 
-## Licence
+Every push to `main` builds Windows, macOS and Linux packages in GitHub Actions. Pushing a tag such as `1.0.0` creates a draft release with all packages attached.
 
-GPL-2.0-or-later (obligatoire pour un plugin OBS). `src/qt-display.*` et
-`src/display-helpers.hpp` sont repris d'OBS Studio (via Aitum Vertical).
+## Project layout
+
+```
+src/            plugin source (C++17, Qt 6)
+data/locale/    en-US, fr-FR, nb-NO translations
+data/effects/   blend.effect (output blending shader)
+build-aux/      Windows installer script (Inno Setup)
+docs/           release notes and user guide
+```
+
+## License
+
+Copyright © 2026 Sébastien Tombre. Released under the GNU General Public License v2.0 or later (see [LICENSE](LICENSE)), as required for OBS Studio plugins.

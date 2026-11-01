@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "render-helpers.hpp"
 
 #include <obs-module.h>
+#include <plugin-support.h>
 #include <graphics/vec2.h>
 #include <graphics/vec4.h>
 
@@ -46,7 +47,7 @@ gs_effect_t *Effect()
 		effect = gs_effect_create_from_file(effectPath.c_str(), &errors);
 		if (!effect) {
 			effectFailed = true;
-			blog(LOG_ERROR, "[multidestination-studio] blend.effect: %s", errors ? errors : "?");
+			obs_log(LOG_ERROR, "blend.effect : %s", errors ? errors : "?");
 		}
 		bfree(errors);
 	}

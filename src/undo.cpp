@@ -189,11 +189,6 @@ bool UndoLast()
 	return false;
 }
 
-bool CanUndo()
-{
-	return !stack.empty();
-}
-
 void Clear()
 {
 	stack.clear();

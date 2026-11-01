@@ -34,7 +34,6 @@ void PushRemoved(obs_scene_t *scene, obs_sceneitem_t *item);
 
 /* Annule la dernière modification encore applicable. */
 bool UndoLast();
-bool CanUndo();
 void Clear();
 
 } // namespace Undo

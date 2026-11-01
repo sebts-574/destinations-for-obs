@@ -53,7 +53,7 @@ fr.WelcomeLabel2=Cet assistant installe [name/ver] dans OBS Studio.%n%nFermez OB
 en.WelcomeLabel2=This will install [name/ver] into OBS Studio.%n%nPlease close OBS Studio before continuing.
 
 [InstallDelete]
-; Ancien nom du plugin (« destinations-for-obs », jusqu'à la V0.8) : sinon
+; Ancien nom du plugin (« destinations-for-obs », versions de test) : sinon
 ; OBS chargerait les deux.
 Type: filesandordirs; Name: "{commonappdata}\obs-studio\plugins\destinations-for-obs"
 Type: files; Name: "{commonpf64}\obs-studio\obs-plugins\64bit\destinations-for-obs.dll"

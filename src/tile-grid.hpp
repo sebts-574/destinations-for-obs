@@ -55,7 +55,6 @@ public:
 	OBSSource EditScene() const;
 
 	void SetEditable(bool value);
-	bool Editable() const { return editable.load(); }
 	void SetActive(bool active);
 	bool Active() const { return active.load(); }
 	void SetFocused(bool focused);
@@ -77,9 +76,6 @@ public:
 	void MouseRelease(QMouseEvent *event);
 	void MouseDoubleClick(QMouseEvent *event);
 	bool KeyPress(QKeyEvent *event);
-
-	/* Point du canvas sous une position de la tuile (pour le glisser-déposer). */
-	bool CanvasPointAt(const QPoint &tilePos, float &x, float &y) const;
 
 protected:
 	void resizeEvent(QResizeEvent *event) override;

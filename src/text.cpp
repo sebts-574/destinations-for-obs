@@ -27,7 +27,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <cstring>
 
 static lookup_t *forcedLookup = nullptr;
-static std::string forcedLocale;
 
 void SetUiLanguage(const std::string &locale)
 {
@@ -35,7 +34,6 @@ void SetUiLanguage(const std::string &locale)
 		text_lookup_destroy(forcedLookup);
 		forcedLookup = nullptr;
 	}
-	forcedLocale.clear();
 	if (locale.empty())
 		return;
 
@@ -43,15 +41,8 @@ void SetUiLanguage(const std::string &locale)
 	if (path)
 		forcedLookup = text_lookup_create(path);
 	bfree(path);
-	if (forcedLookup)
-		forcedLocale = locale;
-	else
+	if (!forcedLookup)
 		obs_log(LOG_WARNING, "langue %s introuvable, langue d'OBS utilisée", locale.c_str());
-}
-
-std::string UiLanguage()
-{
-	return forcedLocale;
 }
 
 QString Tr(const char *key)
