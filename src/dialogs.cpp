@@ -40,6 +40,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
+#include <functional>
 #include <vector>
 
 namespace Dialogs {
@@ -330,27 +331,35 @@ void EditStartupSetting(QWidget *parent)
 {
 	QDialog dialog(parent);
 	dialog.setWindowTitle(Tr("MDS.SettingStartup"));
-	dialog.setMinimumWidth(440);
+	dialog.setMinimumWidth(480);
 	auto *layout = new QVBoxLayout(&dialog);
 
-	auto *row = new QHBoxLayout();
-	auto *label = new QLabel(Tr("MDS.SettingStartupLaunch"), &dialog);
-	auto *toggle = new ToggleSwitch(&dialog);
-	toggle->setChecked(Manager::Get().LaunchOnStartup());
-	auto *state = new QLabel(&dialog);
-	auto refresh = [=]() {
-		state->setText(toggle->isChecked() ? Tr("MDS.Enabled") : Tr("MDS.Disabled"));
-	};
-	refresh();
-	QObject::connect(toggle, &QAbstractButton::toggled, &dialog, [=](bool on) {
-		Manager::Get().SetLaunchOnStartup(on);
+	/* Une ligne par réglage : libellé, état, interrupteur ; enregistré dès
+	 * qu'on clique. */
+	auto addSwitch = [&](const QString &text, bool value, std::function<void(bool)> apply) {
+		auto *row = new QHBoxLayout();
+		auto *label = new QLabel(text, &dialog);
+		label->setWordWrap(true);
+		auto *toggle = new ToggleSwitch(&dialog);
+		toggle->setChecked(value);
+		auto *state = new QLabel(&dialog);
+		auto refresh = [=]() {
+			state->setText(toggle->isChecked() ? Tr("MDS.Enabled") : Tr("MDS.Disabled"));
+		};
 		refresh();
-	});
-	label->setBuddy(toggle);
-	row->addWidget(label, 1);
-	row->addWidget(state);
-	row->addWidget(toggle);
-	layout->addLayout(row);
+		QObject::connect(toggle, &QAbstractButton::toggled, &dialog, [=](bool on) {
+			apply(on);
+			refresh();
+		});
+		row->addWidget(label, 1);
+		row->addWidget(state);
+		row->addWidget(toggle);
+		layout->addLayout(row);
+	};
+	addSwitch(Tr("MDS.SettingStartupLaunch"), Manager::Get().LaunchOnStartup(),
+		  [](bool on) { Manager::Get().SetLaunchOnStartup(on); });
+	addSwitch(Tr("MDS.SettingStartupOutputs"), Manager::Get().OpenOutputsOnStartup(),
+		  [](bool on) { Manager::Get().SetOpenOutputsOnStartup(on); });
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
 	buttons->button(QDialogButtonBox::Close)->setText(Tr("MDS.Close"));

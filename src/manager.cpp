@@ -447,6 +447,8 @@ void Manager::LoadSettings()
 	config_set_default_bool(config, SETTINGS_SECTION, "ShowAllDestinations", true);
 	config_set_default_bool(config, SETTINGS_SECTION, "LaunchOnStartup", false);
 	launchOnStartup = config_get_bool(config, SETTINGS_SECTION, "LaunchOnStartup");
+	config_set_default_bool(config, SETTINGS_SECTION, "OpenOutputsOnStartup", false);
+	openOutputsOnStartup = config_get_bool(config, SETTINGS_SECTION, "OpenOutputsOnStartup");
 	swapAfterTake = config_get_bool(config, SETTINGS_SECTION, "SwapAfterTake");
 	const char *lang = config_get_string(config, SETTINGS_SECTION, "Language");
 	language = lang ? lang : "";
@@ -465,6 +467,7 @@ void Manager::SaveSettings() const
 	config_set_bool(config, SETTINGS_SECTION, "ShowAllDestinations", showAllDestinations);
 	config_set_string(config, SETTINGS_SECTION, "Language", language.c_str());
 	config_set_bool(config, SETTINGS_SECTION, "LaunchOnStartup", launchOnStartup);
+	config_set_bool(config, SETTINGS_SECTION, "OpenOutputsOnStartup", openOutputsOnStartup);
 	config_save_safe(config, "tmp", nullptr);
 }
 
@@ -499,5 +502,13 @@ void Manager::SetLaunchOnStartup(bool value)
 	if (launchOnStartup == value)
 		return;
 	launchOnStartup = value;
+	SaveSettings();
+}
+
+void Manager::SetOpenOutputsOnStartup(bool value)
+{
+	if (openOutputsOnStartup == value)
+		return;
+	openOutputsOnStartup = value;
 	SaveSettings();
 }

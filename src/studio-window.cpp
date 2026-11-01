@@ -176,13 +176,14 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 		UpdateControls();
 		UpdateGrids(true);
 	});
-	 /* Menu Destinations rempli immédiatement : les menus natifs macOS
+	/* Menu Destinations rempli immédiatement : les menus natifs macOS
      * n'affichent pas de façon fiable un menu rempli via aboutToShow. */
-    connect(&m, &Manager::destinationsChanged, this, &StudioWindow::FillDestinationsMenu);
-    connect(&m, &Manager::scenesChanged, this, &StudioWindow::FillDestinationsMenu);
-    connect(&m, &Manager::previewChanged, this, &StudioWindow::FillDestinationsMenu);
-    connect(&m, &Manager::loaded, this, &StudioWindow::FillDestinationsMenu);
-	
+	/* Reconstruction différée : un clic dans ce menu (Supprimer…) peut
+	 * déclencher ces signaux, et le menu ne doit pas être vidé pendant
+	 * que son action s'exécute. */
+	for (auto signal : {&Manager::destinationsChanged, &Manager::scenesChanged, &Manager::loaded})
+		connect(&m, signal, this, &StudioWindow::ScheduleDestinationsMenu);
+
 	connect(&m, &Manager::aboutToRemove, this, [this](Destination *dest) {
 		CloseProjectors(dest);
 		if (activeDest == dest)
@@ -599,6 +600,8 @@ void StudioWindow::BuildMenus()
 	edit->addSeparator();
 	edit->addAction(MakeEditAction(Tr("MDS.Copy"), {QKeySequence::Copy}, &StudioWindow::EditCopy));
 	edit->addAction(MakeEditAction(Tr("MDS.Paste"), {QKeySequence::Paste}, &StudioWindow::EditPaste));
+	edit->addAction(MakeEditAction(Tr("MDS.PasteDuplicate"), {QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_V)},
+				       &StudioWindow::EditPasteDuplicate));
 	edit->addAction(MakeEditAction(Tr("MDS.RemoveSource"),
 				       {QKeySequence(Qt::Key_Delete), QKeySequence(Qt::Key_Backspace)},
 				       &StudioWindow::EditRemove));
@@ -632,7 +635,12 @@ void StudioWindow::BuildMenus()
 
 	/* --- Destinations --- */
 	destinationsMenu = bar->addMenu(Tr("MDS.MenuDestinations"));
+#ifndef Q_OS_MACOS
+	/* macOS : les menus natifs n'affichent pas de façon fiable un menu
+	 * rempli à l'ouverture ; il est rempli à l'avance (voir
+	 * ScheduleDestinationsMenu). */
 	connect(destinationsMenu, &QMenu::aboutToShow, this, &StudioWindow::FillDestinationsMenu);
+#endif
 
 	/* --- Docks : afficher / masquer --- */
 	viewMenu = bar->addMenu(Tr("MDS.MenuView"));
@@ -1630,7 +1638,8 @@ void StudioWindow::ShowItemMenu(const QPoint &globalPos)
 		menu.addSeparator();
 	}
 	for (QAction *a : editActions) {
-		const bool always = a->text() == Tr("MDS.Paste") || a->text() == Tr("MDS.Undo");
+		const bool always = a->text() == Tr("MDS.Paste") || a->text() == Tr("MDS.PasteDuplicate") ||
+				    a->text() == Tr("MDS.Undo");
 		a->setEnabled(item || always);
 		menu.addAction(a);
 	}
@@ -1668,6 +1677,42 @@ void StudioWindow::EditPaste()
 		return;
 
 	obs_sceneitem_t *item = obs_scene_add(s, source);
+	if (!item)
+		return;
+	if (hasClipboardTransform)
+		SceneEditor::SetTransform(item, clipboardTransform);
+	Undo::PushAdded(s, obs_sceneitem_get_id(item));
+	SelectItem(obs_sceneitem_get_id(item));
+	AfterEdit();
+}
+
+/* Coller une copie indépendante : nouvelle source (avec ses filtres), qui
+ * n'est plus liée à l'originale. Une scène collée reste une référence (la
+ * dupliquer créerait une nouvelle scène dans OBS). */
+void StudioWindow::EditPasteDuplicate()
+{
+	OBSSource source = OBSGetStrongRef(clipboardSource);
+	obs_scene_t *s = ActiveScene();
+	if (!source || !s || source.Get() == obs_scene_get_source(s))
+		return;
+	if (obs_source_is_scene(source) || obs_source_is_group(source)) {
+		EditPaste();
+		return;
+	}
+
+	const std::string base = obs_source_get_name(source);
+	std::string name;
+	for (int n = 2;; n++) {
+		name = base + " " + std::to_string(n);
+		OBSSourceAutoRelease existing = obs_get_source_by_name(name.c_str());
+		if (!existing)
+			break;
+	}
+	OBSSourceAutoRelease copy = obs_source_duplicate(source, name.c_str(), false);
+	if (!copy)
+		return;
+
+	obs_sceneitem_t *item = obs_scene_add(s, copy);
 	if (!item)
 		return;
 	if (hasClipboardTransform)
@@ -1853,6 +1898,25 @@ void StudioWindow::RefreshTransitions()
 /* Destinations                                                         */
 /* ------------------------------------------------------------------ */
 
+void StudioWindow::ScheduleDestinationsMenu()
+{
+	if (destinationsMenuPending)
+		return;
+	destinationsMenuPending = true;
+	QTimer::singleShot(0, this, &StudioWindow::RunScheduledDestinationsMenu);
+}
+
+void StudioWindow::RunScheduledDestinationsMenu()
+{
+	/* Menu ouvert : on attend qu'il se ferme. */
+	if (destinationsMenu->isVisible()) {
+		QTimer::singleShot(300, this, &StudioWindow::RunScheduledDestinationsMenu);
+		return;
+	}
+	destinationsMenuPending = false;
+	FillDestinationsMenu();
+}
+
 void StudioWindow::FillDestinationsMenu()
 {
 	destinationsMenu->clear();
@@ -1982,6 +2046,21 @@ void StudioWindow::RefreshBlendProjectors(Destination *dest)
 	}
 	CloseProjectors(dest);
 	OpenProjector(dest, fullscreen);
+}
+
+void StudioWindow::OpenAllOutputs()
+{
+	for (Destination *d : Manager::Get().ActiveDestinations()) {
+		bool hasScreen = false;
+		if (d->IsBlended()) {
+			for (const auto &o : d->Blend().outputs)
+				hasScreen = hasScreen || (o.placed && Dialogs::FindScreen(o.screen));
+		} else {
+			hasScreen = Dialogs::FindScreen(d->OutputScreen()) != nullptr;
+		}
+		if (hasScreen && !HasProjector(d))
+			OpenProjector(d, true);
+	}
 }
 
 void StudioWindow::ManageDestinations()

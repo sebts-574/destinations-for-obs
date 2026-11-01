@@ -58,7 +58,7 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.Properties", "Properties"},
 	{"MDS.Filters", "Filters"},
 	{"MDS.Copy", "Copy"},
-	{"MDS.Paste", "Paste reference"},
+	{"MDS.Paste", "Paste (reference)"},
 	{"MDS.Transform", "Transform"},
 	{"MDS.CopyTransform", "Copy transform"},
 	{"MDS.PasteTransform", "Paste transform"},
@@ -234,4 +234,6 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.ActivateDestination", "Activate"},
 	{"MDS.AddToExistingShowAllNote",
 	 "ⓘ “All destinations, all the time” is on (Configuration Settings): the new destination will be visible under every scene. Where it is not added, it shows “Not in this scene” and nothing is placed on it."},
+	{"MDS.PasteDuplicate", "Paste (duplicate)"},
+	{"MDS.SettingStartupOutputs", "Open every destination on its output screen at startup"},
 };

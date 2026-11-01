@@ -55,6 +55,8 @@ public:
 
 	void Toggle();
 	void Open();
+	/* Ouvre chaque destination en plein écran sur son écran de sortie. */
+	void OpenAllOutputs();
 	void Close();
 	void Shutdown();
 
@@ -135,6 +137,9 @@ private:
 	void FillDestinationsMenu();
 	void NewDestination();
 	void ManageDestinations();
+	void ScheduleDestinationsMenu();
+	void RunScheduledDestinationsMenu();
+	void EditPasteDuplicate();
 	void EditDestination(Destination *dest);
 	void DeleteDestination(Destination *dest);
 	void OpenProjector(Destination *dest, bool fullscreen);
@@ -167,6 +172,7 @@ private:
 	QWidget *fullscreenHint = nullptr;
 	QLabel *hintText = nullptr;
 	bool defaultDocksPending = true;
+	bool destinationsMenuPending = false;
 	QAction *settingsMenuAction = nullptr;
 	QListWidget *sceneList = nullptr;
 	QListWidget *sourceList = nullptr;

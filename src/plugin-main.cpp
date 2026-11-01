@@ -148,6 +148,12 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 				if (studio && !studio->isVisible())
 					studio->Open();
 			});
+		/* Réglage « ouvrir les destinations sur leur sortie ». */
+		if (m.OpenOutputsOnStartup() && studio)
+			QTimer::singleShot(800, studio.data(), []() {
+				if (studio)
+					studio->OpenAllOutputs();
+			});
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
 		m.ApplyLoad();

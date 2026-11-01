@@ -99,6 +99,10 @@ public:
 	 * défaut). */
 	bool LaunchOnStartup() const { return launchOnStartup; }
 	void SetLaunchOnStartup(bool value);
+	/* Ouvrir toutes les destinations sur leur sortie au démarrage d'OBS
+	 * (désactivé par défaut). */
+	bool OpenOutputsOnStartup() const { return openOutputsOnStartup; }
+	void SetOpenOutputsOnStartup(bool value);
 	void SetLanguage(const std::string &value);
 	bool Ready() const { return ready; }
 
@@ -128,6 +132,7 @@ private:
 	bool showAllDestinations = true;
 	std::string language;
 	bool launchOnStartup = false;
+	bool openOutputsOnStartup = false;
 
 	void LoadSettings();
 	void AdoptOrphanCanvases();
